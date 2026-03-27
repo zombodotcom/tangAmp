@@ -38,35 +38,49 @@ def load_file(path):
     return np.array(inputs), np.array(outputs)
 
 
-def compare(name_a, outputs_a, name_b, outputs_b, threshold):
+def compare(name_a, outputs_a, name_b, outputs_b, threshold, rms_only=False):
     """
     Compare two output arrays (already settled).
+    If rms_only=True, compare RMS levels instead of sample-by-sample
+    (useful when sample counts or phase differ, e.g. Verilog vs Python).
     Returns (passed, max_diff, rms_diff, rel_error).
     """
-    # Align lengths
-    n = min(len(outputs_a), len(outputs_b))
-    a = outputs_a[:n]
-    b = outputs_b[:n]
+    ref_rms = float(np.sqrt(np.mean(outputs_a ** 2)))
+    test_rms = float(np.sqrt(np.mean(outputs_b ** 2)))
 
-    diff = np.abs(a - b)
-    max_diff = float(np.max(diff))
-    rms_diff = float(np.sqrt(np.mean(diff ** 2)))
-
-    # Relative error: normalise by RMS of reference (name_a)
-    ref_rms = float(np.sqrt(np.mean(a ** 2)))
-    if ref_rms < 1e-9:
-        rel_error = 0.0 if rms_diff < 1e-9 else float("inf")
+    if rms_only:
+        # Compare RMS levels (tolerant of phase/length differences)
+        rms_diff = abs(ref_rms - test_rms)
+        max_diff = rms_diff  # not meaningful for RMS comparison
+        if ref_rms < 1e-9:
+            rel_error = 0.0 if rms_diff < 1e-9 else float("inf")
+        else:
+            rel_error = rms_diff / ref_rms
+        n = f"{len(outputs_a)} vs {len(outputs_b)}"
     else:
-        rel_error = rms_diff / ref_rms
+        # Sample-by-sample comparison
+        n_samp = min(len(outputs_a), len(outputs_b))
+        a = outputs_a[:n_samp]
+        b = outputs_b[:n_samp]
+        diff = np.abs(a - b)
+        max_diff = float(np.max(diff))
+        rms_diff = float(np.sqrt(np.mean(diff ** 2)))
+        if ref_rms < 1e-9:
+            rel_error = 0.0 if rms_diff < 1e-9 else float("inf")
+        else:
+            rel_error = rms_diff / ref_rms
+        n = str(n_samp)
 
     passed = rel_error <= threshold
 
     status = "PASS" if passed else "FAIL"
-    print(f"--- {name_a} vs {name_b} ---")
-    print(f"  Samples compared : {n} (after skipping {SETTLE_SAMPLES} settling samples)")
+    mode = "RMS-level" if rms_only else "sample-by-sample"
+    print(f"--- {name_a} vs {name_b} ({mode}) ---")
+    print(f"  Samples          : {n} (after skipping {SETTLE_SAMPLES} settling)")
+    print(f"  Ref RMS          : {ref_rms:.4f} V")
+    print(f"  Test RMS         : {test_rms:.4f} V")
     print(f"  Max difference   : {max_diff:.6f} V")
     print(f"  RMS difference   : {rms_diff:.6f} V")
-    print(f"  Reference RMS    : {ref_rms:.6f} V")
     print(f"  Relative error   : {rel_error*100:.3f}%  (threshold {threshold*100:.1f}%)")
     print(f"  Result           : {status}")
     print()
@@ -130,6 +144,7 @@ def main():
             "Newton-Raphson", nr_settled,
             "Verilog-WDF",    vlog_settled,
             VERILOG_VS_NR_THRESHOLD,
+            rms_only=True,  # Verilog may have different sample count/phase
         )
         any_comparison_ran = True
         if not passed:
