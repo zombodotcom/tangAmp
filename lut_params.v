@@ -17,6 +17,7 @@ parameter VGK_MAX_MV  = 0;
 // Scale factors (multiply float by these to get LUT integer values)
 parameter IP_SCALE    = 10000;   // Ip * 10000 = 16-bit int
 parameter DIP_SCALE   = 100000;  // dIp/dVgk * 100000 = 16-bit int
+parameter DIP_VPK_SCALE = 100000;  // dIp/dVpk * 100000 = 16-bit int
 
 // Tube constants (for reference / soft parameter override)
 parameter real MU  = 100.0;
