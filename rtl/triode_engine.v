@@ -262,6 +262,7 @@ reg signed [FP_WIDTH-1:0] fp_val;
 reg signed [63:0] temp_a;
 reg signed [47:0] step_num;
 reg signed [FP_WIDTH-1:0] step;
+reg signed [FP_WIDTH-1:0] step_ig;
 
 // Stage output (before attenuation)
 reg signed [FP_WIDTH-1:0] stage_out;
@@ -449,10 +450,13 @@ always @(posedge clk or negedge rst_n) begin
             dIg_num = (j11 * $signed(f2_val)) >>> FP_FRAC;
 
             if (det != 0) begin
-                ip_est <= ip_est - dIp_num / det;
-                ig_est <= ig_est - dIg_num / det;
-                if ((ip_est - dIp_num / det) < 0) ip_est <= 0;
-                if ((ig_est - dIg_num / det) < 0) ig_est <= 0;
+                step = (dIp_num <<< FP_FRAC) / det;
+                ip_est <= ip_est - step;
+                if ((ip_est - step) < 0) ip_est <= 0;
+
+                step_ig = (dIg_num <<< FP_FRAC) / det;
+                ig_est <= ig_est - step_ig;
+                if ((ig_est - step_ig) < 0) ig_est <= 0;
             end
 
             if (newton_iter == 0) begin
