@@ -27,7 +27,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # New constants fitted to RCA datasheet data (fit_tube_model.py) and paengdesign/miko fits:
 TUBES = {
     # Preamp tubes
-    "12AX7": dict(mu=100.0,  ex=1.4, kg1=1060.0, kp=600.0, kvb=300.0),  # Koren original (fitted values in fit_tube_model.py)
+    "12AX7": dict(mu=100.0, ex=1.4, kg1=1060.0, kp=600.0, kvb=300.0),  # Koren original (fitted in fit_tube_model.py, needs Verilog debug)
     "12AU7": dict(mu=27.48,  ex=1.03, kg1=466.13,  kp=135.10, kvb=24224.55),  # fitted to RCA data
     "6SL7":  dict(mu=90.41,  ex=1.25, kg1=597.32,  kp=511.97, kvb=6747.79),   # paengdesign miko fit
     # Power tubes (triode-connected)

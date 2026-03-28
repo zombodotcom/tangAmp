@@ -466,7 +466,7 @@ class AmpSim:
                 ],
                 interstage_atten=2.0,  # dB loss: avg of -0.83dB (V1A->V1B) and -3.25dB (V1B->V4B)
                 tone_bass=6, tone_mid=5, tone_treble=7,
-                power_tube='6L6',  # TODO: should be 6V6 -- using 6L6 as closest available
+                power_tube='6V6',  # curve-fitted to RCA datasheet (5.7% mean error)
                 power_vb=420, power_rp=3300, power_rk=0,  # fixed bias, OT 6.6k/2
                 power_sag=0.35, power_clip=189.0,  # tube rectifier -> moderate sag
                 cabinet='1x12_open',
@@ -509,7 +509,7 @@ class AmpSim:
                 ],
                 interstage_atten=1.7,  # dB loss: 1M / (220k + 1M) = -1.7dB
                 tone_bass=7, tone_mid=4, tone_treble=8,
-                power_tube='EL34',  # TODO: should be EL84 -- using EL34 as closest available
+                power_tube='EL84',  # curve-fitted to Mullard datasheet (7.9% mean error)
                 power_vb=330, power_rp=1750, power_rk=47,  # cathode-biased, OT 3.5k/2
                 power_sag=0.35, power_clip=178.2,  # tube rectifier, no NFB -> raw and open
                 cabinet='2x12_open',  # classic AC30 2x12 Celestion Blue
