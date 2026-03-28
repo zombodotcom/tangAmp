@@ -99,29 +99,84 @@ def run_all_tests():
 
 
 def scan_demos():
-    """Scan for demo and wav files."""
-    demos = []
-    # Demo pairs
+    """Scan all demo/wav files and organize into categories."""
     demo_dir = os.path.join(PROJECT_DIR, "demos")
-    if os.path.isdir(demo_dir):
-        for f in sorted(os.listdir(demo_dir)):
-            if f.startswith("dry_") and f.endswith(".wav"):
-                name = f[4:-4]
-                wet_files = [w for w in os.listdir(demo_dir) if w.startswith("wet_" + name.split("_")[0]) and w.endswith(".wav")]
-                demos.append({"name": name.replace("_", " ").title(), "dry": f"demos/{f}", "wet": [f"demos/{w}" for w in sorted(wet_files)]})
-    # Root wav pairs
-    pairs = {}
-    for f in sorted(os.listdir(PROJECT_DIR)):
-        if f.startswith("wav_dry_") and f.endswith(".wav"):
-            key = f[8:-4]
-            pairs.setdefault(key, {})["dry"] = f
-        elif f.startswith("wav_wet_") and f.endswith(".wav"):
-            key = f[8:-4]
-            pairs.setdefault(key, {})["wet"] = f
-    simple = [{"name": k.replace("_", " ").title(), "dry": v.get("dry", ""), "wet": [v["wet"]] if "wet" in v else []} for k, v in pairs.items()]
-    # Tube comparison
-    tubes = [{"name": f[9:-4], "file": f} for f in sorted(os.listdir(PROJECT_DIR)) if f.startswith("wav_tube_") and f.endswith(".wav")]
-    return {"demos": demos, "simple": simple, "tubes": tubes}
+    all_wavs = sorted(os.listdir(demo_dir)) if os.path.isdir(demo_dir) else []
+    all_wavs = [f for f in all_wavs if f.endswith(".wav")]
+
+    # Amp presets: fender_deluxe_*, marshall_jcm800_*, vox_ac30_*, mesa_dual_rec_*, fender_twin_*
+    amp_presets = {}
+    preset_prefixes = ["fender_deluxe", "marshall_jcm800", "vox_ac30", "mesa_dual_rec", "fender_twin"]
+    for prefix in preset_prefixes:
+        files = [f for f in all_wavs if f.startswith(prefix + "_")]
+        if files:
+            amp_presets[prefix] = [{"name": f.replace(".wav", "").replace(prefix + "_", ""), "file": f"demos/{f}"} for f in files]
+
+    # Gain sweep: marshall_jcm800_gain*.wav
+    gain_sweep = [{"name": f"Gain {f.split('gain')[1].replace('.wav','')}", "file": f"demos/{f}"}
+                  for f in all_wavs if "gain" in f and f.startswith("marshall")]
+
+    # Physics demos
+    physics = {}
+    physics_cats = {
+        "sag": "Power Supply Sag",
+        "nfb": "Negative Feedback",
+        "blocking": "Coupling Cap Blocking",
+        "tremolo": "Bias Tremolo",
+        "grid_current": "Grid Current",
+        "transformer": "Output Transformer",
+        "miller": "Miller Effect",
+        "noise": "Amp Noise",
+        "presence_resonance": "Presence/Resonance",
+    }
+    for prefix, label in physics_cats.items():
+        files = [f for f in all_wavs if f.startswith(prefix)]
+        if files:
+            physics[label] = [{"name": f.replace(".wav", "").replace(prefix + "_", ""), "file": f"demos/{f}"} for f in files]
+
+    # Guitar demos: dry/wet pairs
+    guitar_demos = []
+    dry_files = [f for f in all_wavs if f.startswith("dry_")]
+    for df in dry_files:
+        name = df[4:-4]
+        wet = [f"demos/{w}" for w in all_wavs if w.startswith("wet_") and name.split("_")[0] in w]
+        guitar_demos.append({"name": name.replace("_", " ").title(), "dry": f"demos/{df}", "wet": wet})
+
+    # Amp sim v1 demos
+    amp_v1 = [{"name": f.replace(".wav", "").replace("amp_", ""), "file": f"demos/{f}"}
+              for f in all_wavs if f.startswith("amp_")]
+
+    # Tone/cab demos
+    tone_cab = [{"name": f.replace(".wav", ""), "file": f"demos/{f}"}
+                for f in all_wavs if f.startswith("tone_") or f.startswith("wet_cab_") or f.startswith("wet_nocab")]
+
+    # Root wav files (tube comparison, simple dry/wet)
+    root_wavs = sorted([f for f in os.listdir(PROJECT_DIR) if f.endswith(".wav")])
+    tubes = [{"name": f[9:-4], "file": f} for f in root_wavs if f.startswith("wav_tube_")]
+    simple_pairs = {}
+    for f in root_wavs:
+        if f.startswith("wav_dry_"):
+            simple_pairs.setdefault(f[8:-4], {})["dry"] = f
+        elif f.startswith("wav_wet_"):
+            simple_pairs.setdefault(f[8:-4], {})["wet"] = f
+    simple = [{"name": k.replace("_", " ").title(), "dry": v.get("dry", ""), "wet": [v["wet"]] if "wet" in v else []}
+              for k, v in simple_pairs.items()]
+
+    # Plots
+    plots = sorted([f for f in os.listdir(demo_dir) if f.endswith(".png")]) if os.path.isdir(demo_dir) else []
+    root_plots = sorted([f for f in os.listdir(PROJECT_DIR) if f.endswith(".png") and f.startswith("validation")])
+
+    return {
+        "amp_presets": amp_presets,
+        "gain_sweep": gain_sweep,
+        "physics": physics,
+        "guitar_demos": guitar_demos,
+        "amp_v1": amp_v1,
+        "tone_cab": tone_cab,
+        "tubes": tubes,
+        "simple": simple,
+        "plots": [f"demos/{p}" for p in plots] + root_plots,
+    }
 
 
 class API(http.server.SimpleHTTPRequestHandler):
