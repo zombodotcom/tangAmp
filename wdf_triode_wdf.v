@@ -47,7 +47,7 @@ localparam signed [FP_WIDTH-1:0] VB_FP = 200 * (1 << FP_FRAC);  // 13,107,200
 // Resistor values as plain integers (NOT Q16.16)
 localparam integer RP_INT  = 100000;   // Plate resistor (ohms)
 localparam integer RK_INT  = 1500;     // Cathode resistor (ohms)
-localparam integer RPK_INT = 101500;   // RP + RK
+localparam integer RPK_INT = 100000;   // RP + R_cathode (R_cathode ≈ 0.47 ohm, negligible)
 
 // High-pass filter coefficients (Q0.16, stored in lower 16 bits)
 // c_hp  = 0.999054 -> round(0.999054 * 65536) = 65474
@@ -58,13 +58,22 @@ localparam signed [FP_WIDTH-1:0] HP_GAIN = 32'sd65505;
 // 1.0 in Q16.16
 localparam signed [FP_WIDTH-1:0] ONE_FP = 32'sd65536;
 
+// Cathode parallel adaptor: Rk(1500) || Ck(22uF)
+// R_Ck = 1/(2*48000*22e-6) = 0.4735 ohm
+// R_cathode = 1/(1/1500 + 1/0.4735) = 0.47319 ohm
+// gamma_cath = (1/1500) / (1/1500 + 1/0.4735) = 0.000316
+// In Q16.16: round(0.000316 * 65536) = 20
+localparam signed [FP_WIDTH-1:0] GAMMA_CATH = 32'sd20;
+// 2*R_cathode = 0.947 ohm. In Q16.16: round(0.947 * 65536) = 62041
+localparam signed [FP_WIDTH-1:0] TWO_R_CATH_FP = 32'sd62041;
+
 // DC operating point estimate: ~146V in Q16.16
 // Will be refined by exponential moving average
 localparam signed [FP_WIDTH-1:0] VP_DC_INIT = 146 * (1 << FP_FRAC);  // 9,568,256
 
 // DC tracking: EMA with alpha = 1/256 (shift by 8)
 localparam DC_SHIFT = 8;
-localparam DC_SETTLE_SAMPLES = 2000;
+localparam DC_SETTLE_SAMPLES = 10000;
 
 // ============================================================================
 // LUT Memory
@@ -131,6 +140,10 @@ reg signed [FP_WIDTH-1:0] hp_prev_out;
 // Grid voltage after coupling cap
 reg signed [FP_WIDTH-1:0] vgrid;
 
+// Cathode bypass capacitor state
+reg signed [FP_WIDTH-1:0] ck_z;         // Bypass cap state (WDF delay element)
+reg signed [FP_WIDTH-1:0] b_cathode;    // Cathode adaptor upward reflected wave
+
 // Newton-Raphson state
 reg signed [FP_WIDTH-1:0] ip_est;       // Current Ip estimate (Q16.16)
 reg signed [FP_WIDTH-1:0] ip_prev;      // Previous sample's converged Ip
@@ -180,6 +193,10 @@ always @(posedge clk or negedge rst_n) begin
         hp_prev_in  <= 0;
         hp_prev_out <= 0;
         vgrid       <= 0;
+        // Initialize bypass cap near DC equilibrium: Vk ≈ Ip*Rk ≈ 0.81V
+        // ck_z_eq ≈ R_cath * Ip_eq / gamma ≈ 53000 in Q16.16
+        ck_z        <= 32'sd53000;
+        b_cathode   <= 32'sd53000;
         ip_est      <= 0;
         ip_prev     <= 32'sd35;        // ~0.54mA quiescent in Q16.16
         vpk_est     <= 0;
@@ -228,23 +245,29 @@ always @(posedge clk or negedge rst_n) begin
             hp_prev_out <= hp_temp[47:16] + hp_temp2[47:16];
             hp_prev_in  <= audio_in;
 
+            // Cathode parallel adaptor upward pass: Rk || Ck
+            // b_rk = 0 (resistor), b_ck = ck_z (capacitor state)
+            // bDiff = b_ck - b_rk = ck_z
+            // b_cathode = b_ck - gamma * bDiff = ck_z - gamma * ck_z
+            temp64 = $signed(GAMMA_CATH) * $signed(ck_z);
+            b_cathode <= ck_z - temp64[47:16];
+
             state <= ST_NR_ADDR;
         end
 
         // ── Newton-Raphson: compute Vpk, Vgk, build LUT address ────────
         ST_NR_ADDR: begin
-            // Vpk = VB - (RP + RK) * Ip = VB - 101500 * ip_est
-            // RPK_INT is plain int, ip_est is Q16.16 -> result is Q16.16
+            // With cathode bypass cap, cathode port resistance R_cathode ≈ 0.47 ohm
+            // Vpk = (VB - b_cathode) - (RP + R_cathode) * Ip ≈ (VB - b_cathode) - RP * Ip
             temp64 = $signed(RPK_INT) * $signed(ip_est);
-            vpk_est <= VB_FP - temp64[31:0];
+            vpk_est <= (VB_FP - b_cathode) - temp64[31:0];
 
-            // Vgk = vgrid - RK * Ip = vgrid - 1500 * ip_est
-            temp64b = $signed(RK_INT) * $signed(ip_est);
-            vgk_est <= vgrid - temp64b[31:0];
+            // Vgk = vgrid - b_cathode (R_cathode * Ip is negligible)
+            vgk_est <= vgrid - b_cathode;
 
             // Build LUT address from Vpk and Vgk estimates
-            lut_addr <= vpk_to_idx(VB_FP - temp64[31:0]) * LUT_SIZE
-                      + vgk_to_idx(vgrid - temp64b[31:0]);
+            lut_addr <= vpk_to_idx((VB_FP - b_cathode) - temp64[31:0]) * LUT_SIZE
+                      + vgk_to_idx(vgrid - b_cathode);
 
             state <= ST_NR_READ;
         end
@@ -270,18 +293,19 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Newton step ─────────────────────────────────────────────────
         // f  = Ip - ip_model
-        // f' = 1 + dip_vpk * (RP + RK) + dip_vgk * RK
-        //    = 1 + dip_vpk * 101500 + dip_vgk * 1500
+        // f' = 1 + dip_vpk * (RP + R_cath) + dip_vgk * R_cath
+        //    ≈ 1 + dip_vpk * RP (R_cath ≈ 0.47 ohm, negligible for dip_vgk term)
         // Ip_new = Ip - f / f'
         ST_NR_STEP: begin
             // f = ip_est - ip_model (both Q16.16)
             f_val = ip_est - ip_model;
 
-            // f' = 1.0 + dip_vpk * 101500 + dip_vgk * 1500
-            // dip_vpk_val is Q16.16, * plain int -> Q16.16
-            temp_a = $signed(dip_vpk_val) * $signed(RPK_INT);
-            temp_b = $signed(dip_vgk_val) * $signed(RK_INT);
-            fp_val = ONE_FP + temp_a[31:0] + temp_b[31:0];
+            // f' = 1.0 + dip_vpk * RPK + dip_vgk * R_cath
+            // Compute dip_vpk * RPK directly from raw value to avoid Q16.16 quantization:
+            //   dip_vpk_raw is int16 scaled by DIP_VPK_SCALE
+            //   dip_vpk * RPK in Q16.16 = (dip_vpk_raw * RPK_INT << 16) / DIP_VPK_SCALE
+            temp_a = ($signed(dip_vpk_raw) * $signed(RPK_INT)) <<< FP_FRAC;
+            fp_val = ONE_FP + temp_a / DIP_VPK_SCALE;
 
             // Newton step: Ip = Ip - f / f'
             // f is Q16.16, f' is Q16.16
@@ -319,6 +343,14 @@ always @(posedge clk or negedge rst_n) begin
 
             // Save converged Ip for next sample's initial guess
             ip_prev <= ip_est;
+
+            // Cathode downward pass: update bypass cap state
+            // bk_root = b_cathode + 2*R_cathode*Ip (root scattering for cathode)
+            // Parallel adaptor downward: a_ck = bk_root + b_cathode - b_ck
+            //   where b_ck = ck_z (capacitor reflected wave)
+            // ck_z <= a_ck (update cap state for next sample)
+            temp64b = $signed(TWO_R_CATH_FP) * $signed(ip_est);
+            ck_z <= (b_cathode + temp64b[47:16]) + b_cathode - ck_z;
 
             // Update DC tracking (exponential moving average)
             // vp_dc += (vplate - vp_dc) >> DC_SHIFT

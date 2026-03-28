@@ -72,7 +72,7 @@ initial begin
 end
 
 // DC settling period: run 2000 samples with zero input before starting sine
-localparam DC_SETTLE_SAMPLES = 2000;
+localparam DC_SETTLE_SAMPLES = 10000;
 
 // Feed sine samples on each sample_en pulse (after DC settling)
 always @(posedge clk) begin
@@ -113,8 +113,8 @@ initial begin
     #(CLK_PERIOD * 10);
     rst_n = 1;
 
-    // Run for 2000 settling + 4800 audio = 6800 samples at 48kHz
-    #(6800 * SAMPLE_DIV * CLK_PERIOD);
+    // Run for 10000 settling + 4800 audio = 14800 samples at 48kHz
+    #(14800 * SAMPLE_DIV * CLK_PERIOD);
 
     $fclose(fd);
     $display("Simulation complete. %0d samples written to wdf_tb_output.txt", sample_count);
