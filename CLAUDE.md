@@ -34,10 +34,10 @@ chowdsp_wdf/  C++ WDF reference library (submodule)
 ## FPGA Resource Usage (Gowin GW2AR-LV18QN88C8/I7)
 | Resource | Used | Available | Utilization |
 |----------|------|-----------|-------------|
-| LUT      | 15,810 | 20,736 | 77% |
-| Registers| 780 | 15,750 | 5% |
-| BSRAM    | 46 | 46 | 100% |
-| DSP      | 13.5 | 24 | 57% |
+| LUT      | 17,142 | 20,736 | 83% |
+| Registers| 991 | 15,750 | 7% |
+| BSRAM    | 40 | 46 | 87% |
+| DSP      | 21.5 | 24 | 90% |
 
 ## Validation Chain (4 independent solvers agree at 34.1dB)
 1. Python WDF (floating-point reference, 2x2 Newton with grid current)
