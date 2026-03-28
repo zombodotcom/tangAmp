@@ -1,0 +1,67 @@
+Power Supply Sag -- FPGA Implementation Specification
+=====================================================
+
+Overview
+--------
+Power supply sag is a single-pole IIR filter on the B+ supply voltage,
+driven by the instantaneous plate current. On the Tang Nano 20K (27MHz,
+Q16.16 fixed-point), this requires ~3 clock cycles per sample.
+
+Algorithm (per audio sample)
+----------------------------
+1. MULTIPLY: v_drop = sag_amount * Ip_mA          (1 clock, 16x16 multiply)
+2. SUBTRACT: v_target = V_nominal - v_drop         (1 clock, clamped to v_min)
+3. IIR:      v_supply += alpha * (v_target - v_supply)  (1 clock, multiply-accumulate)
+
+Where alpha = recovery_rate is a small fractional coefficient.
+
+Fixed-Point Format
+------------------
+- v_supply, v_nominal, v_target: Q16.16 (signed 32-bit), range 0-600V
+- sag_amount: Q0.16 unsigned (0.0 to ~1.0 V/mA)
+- recovery_rate (alpha): Q0.16 unsigned (0.0 to ~1.0)
+- Ip_mA: Q16.16 from the WDF solver output (convert from amps: shift left by ~10)
+
+Registers (4 total)
+--------------------
+- REG_V_NOMINAL   [31:0]  -- Unloaded supply voltage (Q16.16)
+- REG_SAG_AMOUNT  [15:0]  -- Sag depth coefficient (Q0.16)
+- REG_ALPHA       [15:0]  -- Recovery rate / filter coefficient (Q0.16)
+- REG_V_SUPPLY    [31:0]  -- Current supply voltage state (Q16.16, read/write)
+
+Preset Values (Q0.16 hex)
+--------------------------
+No sag:           SAG_AMOUNT=0x0000, ALPHA=0x0147  (0.005)
+Solid-state rect: SAG_AMOUNT=0x199A, ALPHA=0x0147  (0.1 V/mA, 0.005)
+Tube GZ34:        SAG_AMOUNT=0x599A, ALPHA=0x0034  (0.35 V/mA, 0.0008)
+Tube 5U4:         SAG_AMOUNT=0x8000, ALPHA=0x0021  (0.5 V/mA, 0.0005)
+
+Pipeline Integration
+--------------------
+The sag module sits between the WDF solver output (Ip) and the VB input
+to the next sample's WDF computation:
+
+    [WDF Solver] --Ip--> [Sag IIR] --v_supply--> [WDF Solver (next sample)]
+                              ^
+                         REG_V_NOMINAL, REG_SAG_AMOUNT, REG_ALPHA
+
+Total added latency: 3 clocks out of 562 available per 48kHz sample.
+Resource cost: 1 multiplier, 4 registers. Negligible on GW2A.
+
+Verilog Pseudocode
+------------------
+    // Stage 1: compute voltage drop
+    wire signed [31:0] v_drop = (sag_amount * ip_ma) >>> 16;
+
+    // Stage 2: compute target, clamp
+    wire signed [31:0] v_target = v_nominal - v_drop;
+    wire signed [31:0] v_target_clamped =
+        (v_target < v_min) ? v_min : v_target;
+
+    // Stage 3: IIR update
+    wire signed [31:0] v_diff = v_target_clamped - v_supply;
+    wire signed [31:0] v_delta = (alpha * v_diff) >>> 16;
+    always @(posedge clk) begin
+        if (sample_tick)
+            v_supply <= v_supply + v_delta;
+    end
