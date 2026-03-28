@@ -1,0 +1,359 @@
+{
+  "generated_by": "generate_all_demos.py",
+  "sample_rate": 48000,
+  "bit_depth": 16,
+  "channels": 1,
+  "total_files": 35,
+  "files": [
+    {
+      "file": "fender_deluxe_chord.wav",
+      "preset": "fender_deluxe",
+      "amp_name": "Fender Deluxe Reverb",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, 0.15V each, 3s)",
+      "gain": 5,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_deluxe_clean.wav",
+      "preset": "fender_deluxe",
+      "amp_name": "Fender Deluxe Reverb",
+      "signal": "clean",
+      "signal_desc": "Clean single note (440 Hz, 0.3V, 2s)",
+      "gain": 5,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_deluxe_dirty.wav",
+      "preset": "fender_deluxe",
+      "amp_name": "Fender Deluxe Reverb",
+      "signal": "dirty",
+      "signal_desc": "Dirty single note (440 Hz, 2.0V, 2s)",
+      "gain": 5,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_deluxe_volume_swell.wav",
+      "preset": "fender_deluxe",
+      "amp_name": "Fender Deluxe Reverb",
+      "signal": "volume_swell",
+      "signal_desc": "Volume swell (330 Hz, 0.05V->3V, 3s)",
+      "gain": 5,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "marshall_jcm800_chord.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, 0.15V each, 3s)",
+      "gain": 7,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "marshall_jcm800_clean.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "clean",
+      "signal_desc": "Clean single note (440 Hz, 0.3V, 2s)",
+      "gain": 7,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "marshall_jcm800_dirty.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "dirty",
+      "signal_desc": "Dirty single note (440 Hz, 2.0V, 2s)",
+      "gain": 7,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "marshall_jcm800_volume_swell.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "volume_swell",
+      "signal_desc": "Volume swell (330 Hz, 0.05V->3V, 3s)",
+      "gain": 7,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "vox_ac30_chord.wav",
+      "preset": "vox_ac30",
+      "amp_name": "Vox AC30",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, 0.15V each, 3s)",
+      "gain": 6,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "vox_ac30_clean.wav",
+      "preset": "vox_ac30",
+      "amp_name": "Vox AC30",
+      "signal": "clean",
+      "signal_desc": "Clean single note (440 Hz, 0.3V, 2s)",
+      "gain": 6,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "vox_ac30_dirty.wav",
+      "preset": "vox_ac30",
+      "amp_name": "Vox AC30",
+      "signal": "dirty",
+      "signal_desc": "Dirty single note (440 Hz, 2.0V, 2s)",
+      "gain": 6,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "vox_ac30_volume_swell.wav",
+      "preset": "vox_ac30",
+      "amp_name": "Vox AC30",
+      "signal": "volume_swell",
+      "signal_desc": "Volume swell (330 Hz, 0.05V->3V, 3s)",
+      "gain": 6,
+      "master": 6,
+      "category": "preset_demo"
+    },
+    {
+      "file": "mesa_dual_rec_chord.wav",
+      "preset": "mesa_dual_rec",
+      "amp_name": "Mesa Dual Rectifier",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, 0.15V each, 3s)",
+      "gain": 8,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "mesa_dual_rec_clean.wav",
+      "preset": "mesa_dual_rec",
+      "amp_name": "Mesa Dual Rectifier",
+      "signal": "clean",
+      "signal_desc": "Clean single note (440 Hz, 0.3V, 2s)",
+      "gain": 8,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "mesa_dual_rec_dirty.wav",
+      "preset": "mesa_dual_rec",
+      "amp_name": "Mesa Dual Rectifier",
+      "signal": "dirty",
+      "signal_desc": "Dirty single note (440 Hz, 2.0V, 2s)",
+      "gain": 8,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "mesa_dual_rec_volume_swell.wav",
+      "preset": "mesa_dual_rec",
+      "amp_name": "Mesa Dual Rectifier",
+      "signal": "volume_swell",
+      "signal_desc": "Volume swell (330 Hz, 0.05V->3V, 3s)",
+      "gain": 8,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_twin_chord.wav",
+      "preset": "fender_twin",
+      "amp_name": "Fender Twin Clean",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, 0.15V each, 3s)",
+      "gain": 3,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_twin_clean.wav",
+      "preset": "fender_twin",
+      "amp_name": "Fender Twin Clean",
+      "signal": "clean",
+      "signal_desc": "Clean single note (440 Hz, 0.3V, 2s)",
+      "gain": 3,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_twin_dirty.wav",
+      "preset": "fender_twin",
+      "amp_name": "Fender Twin Clean",
+      "signal": "dirty",
+      "signal_desc": "Dirty single note (440 Hz, 2.0V, 2s)",
+      "gain": 3,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "fender_twin_volume_swell.wav",
+      "preset": "fender_twin",
+      "amp_name": "Fender Twin Clean",
+      "signal": "volume_swell",
+      "signal_desc": "Volume swell (330 Hz, 0.05V->3V, 3s)",
+      "gain": 3,
+      "master": 5,
+      "category": "preset_demo"
+    },
+    {
+      "file": "marshall_jcm800_gain1.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, gain sweep)",
+      "gain": 1,
+      "master": 5,
+      "category": "gain_sweep"
+    },
+    {
+      "file": "marshall_jcm800_gain3.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, gain sweep)",
+      "gain": 3,
+      "master": 5,
+      "category": "gain_sweep"
+    },
+    {
+      "file": "marshall_jcm800_gain5.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, gain sweep)",
+      "gain": 5,
+      "master": 5,
+      "category": "gain_sweep"
+    },
+    {
+      "file": "marshall_jcm800_gain7.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, gain sweep)",
+      "gain": 7,
+      "master": 5,
+      "category": "gain_sweep"
+    },
+    {
+      "file": "marshall_jcm800_gain10.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord (82+123+165 Hz, gain sweep)",
+      "gain": 10,
+      "master": 5,
+      "category": "gain_sweep"
+    },
+    {
+      "file": "fender_deluxe_dry.wav",
+      "preset": "fender_deluxe",
+      "amp_name": "Fender Deluxe Reverb",
+      "signal": "chord",
+      "signal_desc": "E power chord - DRY input",
+      "gain": 0,
+      "master": 0,
+      "category": "ab_dry"
+    },
+    {
+      "file": "fender_deluxe_wet.wav",
+      "preset": "fender_deluxe",
+      "amp_name": "Fender Deluxe Reverb",
+      "signal": "chord",
+      "signal_desc": "E power chord - WET output",
+      "gain": 5,
+      "master": 5,
+      "category": "ab_wet"
+    },
+    {
+      "file": "marshall_jcm800_dry.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord - DRY input",
+      "gain": 0,
+      "master": 0,
+      "category": "ab_dry"
+    },
+    {
+      "file": "marshall_jcm800_wet.wav",
+      "preset": "marshall_jcm800",
+      "amp_name": "Marshall JCM800",
+      "signal": "chord",
+      "signal_desc": "E power chord - WET output",
+      "gain": 7,
+      "master": 6,
+      "category": "ab_wet"
+    },
+    {
+      "file": "vox_ac30_dry.wav",
+      "preset": "vox_ac30",
+      "amp_name": "Vox AC30",
+      "signal": "chord",
+      "signal_desc": "E power chord - DRY input",
+      "gain": 0,
+      "master": 0,
+      "category": "ab_dry"
+    },
+    {
+      "file": "vox_ac30_wet.wav",
+      "preset": "vox_ac30",
+      "amp_name": "Vox AC30",
+      "signal": "chord",
+      "signal_desc": "E power chord - WET output",
+      "gain": 6,
+      "master": 6,
+      "category": "ab_wet"
+    },
+    {
+      "file": "mesa_dual_rec_dry.wav",
+      "preset": "mesa_dual_rec",
+      "amp_name": "Mesa Dual Rectifier",
+      "signal": "chord",
+      "signal_desc": "E power chord - DRY input",
+      "gain": 0,
+      "master": 0,
+      "category": "ab_dry"
+    },
+    {
+      "file": "mesa_dual_rec_wet.wav",
+      "preset": "mesa_dual_rec",
+      "amp_name": "Mesa Dual Rectifier",
+      "signal": "chord",
+      "signal_desc": "E power chord - WET output",
+      "gain": 8,
+      "master": 5,
+      "category": "ab_wet"
+    },
+    {
+      "file": "fender_twin_dry.wav",
+      "preset": "fender_twin",
+      "amp_name": "Fender Twin Clean",
+      "signal": "chord",
+      "signal_desc": "E power chord - DRY input",
+      "gain": 0,
+      "master": 0,
+      "category": "ab_dry"
+    },
+    {
+      "file": "fender_twin_wet.wav",
+      "preset": "fender_twin",
+      "amp_name": "Fender Twin Clean",
+      "signal": "chord",
+      "signal_desc": "E power chord - WET output",
+      "gain": 3,
+      "master": 5,
+      "category": "ab_wet"
+    }
+  ]
+}
