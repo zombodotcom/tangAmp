@@ -9,13 +9,13 @@ Models actual circuit physics using incident/reflected wave pairs. Tube nonlinea
 - **Approach:** WDF for nonlinear preamp + biquad IIR tone stack + FIR cabinet IR
 - **Fixed point:** Q16.16 signed 32-bit throughout
 - **Sample rate:** 48kHz
-- **Clock:** 27MHz (562 clocks per audio sample, ~180 used)
+- **Clock:** 27MHz (562 clocks per audio sample, ~313 used with 256-tap FIR)
 - **LUT format:** 256x256 entries, 16-bit values, loaded via $readmemh
 
 ## Signal Chain (Implemented)
 ```
 Guitar -> [I2S ADC] -> [Triode Engine] -> [Tone Stack] -> [Cabinet IR] -> [I2S DAC] -> Speaker
-            PCM1802     2-stage 12AX7      3-band EQ       129-tap FIR      PCM5102
+            PCM1802     2-stage 12AX7      3-band EQ       256-tap FIR      PCM5102
             i2s_rx.v    triode_engine.v    tone_stack.v    cabinet_fir.v    i2s_tx.v
 ```
 
@@ -40,17 +40,17 @@ chowdsp_wdf/  C++ WDF reference library (submodule)
 | DSP      | 13.5 | 24 | 57% |
 
 ## Validation Chain (4 independent solvers agree at 34.1dB)
-1. Python WDF (floating-point reference)
-2. Verilog WDF (Q16.16 fixed-point, 0.36% error)
+1. Python WDF (floating-point reference, 2x2 Newton with grid current)
+2. Verilog WDF (Q16.16 fixed-point, 3.2% RMS error with 2x2 Newton)
 3. ngspice (SPICE nodal analysis, 0.21dB error)
 4. chowdsp_wdf C++ (established WDF library, 0.18% error)
 5. Physics validation: datasheet match, analytical gain, energy conservation, frequency response
 
 ## Verilog Modules (rtl/)
-- `wdf_triode_wdf.v` -- Single WDF triode stage (12AX7, cathode bypass cap, 14 clocks)
+- `wdf_triode_wdf.v` -- Single WDF triode stage (12AX7, 2x2 Newton with grid current, ~16 clocks)
 - `triode_engine.v` -- Time-multiplexed N-stage cascade sharing one set of LUT BRAMs
 - `tone_stack_iir.v` -- 3 cascaded biquad IIR (bass/mid/treble), 9 clocks
-- `cabinet_fir.v` -- 129-tap FIR convolution for speaker cabinet, 129 clocks
+- `cabinet_fir.v` -- 256-tap FIR convolution for speaker cabinet (real Celestion V30 IR), 256 clocks
 - `output_transformer.v` -- Bandpass + soft clip
 - `nfb_register.v` -- Negative feedback register
 - `power_amp_wdf.v` -- 6L6 power amp WDF stage
@@ -138,8 +138,10 @@ programmer_cli --device GW2AR-18C --run 2 --fsFile fpga/impl/pnr/project.fs
 2. ~~Single WDF triode stage~~ DONE (34.1dB, 4-way validated)
 3. ~~Cascaded stages + cathode bypass cap~~ DONE (2-stage in Verilog, 3-stage in Python)
 4. ~~Tone stack~~ DONE (3-band biquad IIR)
-5. ~~Cabinet IR~~ DONE (129-tap FIR)
-6. ~~FPGA synthesis~~ DONE (77% LUT, bitstream ready)
-7. External pots for tone controls (needs ADC for knob reading)
-8. Power amp stage (6L6/EL34 push-pull)
-9. Hardware testing with real guitar signal
+5. ~~Cabinet IR~~ DONE (256-tap FIR, real Celestion V30)
+6. ~~FPGA synthesis~~ DONE (77% LUT, bitstream ready — needs re-synth with 2x2 Newton)
+7. ~~Grid current fix~~ DONE (2x2 Newton, proper interstage coupling, 3.2% Verilog vs Python)
+8. Re-synthesize with Gowin EDA (verify fit with 2x2 solver + 256-tap FIR)
+9. Hardware testing with real guitar signal (PCM arriving 2026-03-30)
+10. External pots for tone controls (needs SPI ADC for knob reading)
+11. Power amp stage (6L6/EL34 push-pull)

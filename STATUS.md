@@ -4,12 +4,13 @@
 
 | Component | Method | Validated by | Error | Status |
 |-----------|--------|-------------|-------|--------|
-| 12AX7 WDF triode preamp | Koren LUT + Newton-Raphson | Python, Verilog, ngspice, chowdsp_wdf C++ | 0.36% | SOLID |
+| 12AX7 WDF triode preamp | Koren LUT + 2x2 Newton-Raphson | Python, Verilog, ngspice, chowdsp_wdf C++ | 3.2% | SOLID |
 | 6L6 WDF triode power amp | Same engine, different LUTs | Python, ngspice, analytical | 0.10% | SOLID |
 | Cathode bypass cap (Ck) | WDF parallel adaptor | Python match | 0.00% | SOLID |
-| Grid current limiting | Piecewise linear Vgk^1.5 | In Verilog + Python | new, needs cross-validation | NEW |
+| Grid current (Ig) | 2x2 Newton, LUT for Vgk^1.5 | Python vs Verilog cross-validated | 3.2% | SOLID |
+| Interstage coupling | Real coupling network (0.35dB) | Replaces fake 12dB atten | — | FIXED |
 | Tone stack (Fender/Marshall) | Circuit-derived biquad IIR | vs Yeh analog transfer fn | 1.51dB max | SOLID |
-| Cabinet IR | 129-tap FIR, Thiele-Small model | vs Eminence speaker data | shape match | OK |
+| Cabinet IR | 256-tap FIR, real Celestion V30 | Measured IR from Celestion | — | SOLID |
 | Output transformer | Bandpass + soft clip | — | not independently validated | NEEDS VALIDATION |
 | Negative feedback loop | Subtract scaled output from input | — | not validated vs real amp | NEEDS VALIDATION |
 | Time-multiplexed 2-stage + power amp | Shared BRAM engine | Verilog testbench PASS | — | OK |
@@ -33,13 +34,15 @@ These exist as standalone scripts with demos but are NOT in the FPGA signal chai
 
 | Issue | Where | What's wrong | Fix |
 |-------|-------|-------------|-----|
-| Interstage attenuation = 12dB | `amp_sim.py` | Tuned by trial, not derived from schematic | Need SPICE sim of actual coupling network |
-| Grid current Vgk clamp at 2V | `amp_sim.py` | Band-aid to prevent numerical explosion | Implement proper coupling cap blocking in the solver |
+| ~~Interstage attenuation = 12dB~~ | ~~`amp_sim.py`~~ | **FIXED** — now uses real 0.35dB coupling network value | — |
+| ~~Grid current post-hoc~~ | ~~`wdf_triode_wdf.v`~~ | **FIXED** — 2x2 Newton solves Ip+Ig simultaneously | — |
+| ~~Cabinet IR synthetic~~ | ~~`cabinet_ir.py`~~ | **FIXED** — real Celestion V30 256-tap IR | — |
+| ~~tanh() band-aid~~ | ~~`amp_sim.py`~~ | **FIXED** — removed, grid current handles clipping | — |
 | amp_sim.py gain/master tables | `amp_sim.py` | Arbitrary numbers, not from real amp measurements | Need real amp schematic analysis |
-| Cabinet IR is synthetic | `cabinet_ir.py` | Approximation, not measured from a real speaker | Use a real measured IR (free packs available online) |
 | Output transformer saturation | `output_transformer.v` | Piecewise linear soft clip, not physics-based core model | Would need hysteresis model (complex) |
-| 3-stage demos may still have artifacts | `demos/` | Grid current + 12dB atten may not fully fix all presets | Need to listen and verify |
 | EL34/300B Koren constants | `tube_lut_gen.py` | Diverge 50-100% at extreme operating points | Curve-fit like we did for 12AX7/12AU7 |
+| Fitted 12AX7 kvb=15102 | `tube_lut_gen.py` | Overflows Q16.16 in Verilog Newton solver | Debug fixed-point with large kvb |
+| Needs re-synthesis | `fpga/` | 2x2 Newton + 256-tap FIR not yet synthesized | Run Gowin EDA when available |
 
 ## What's NEEDED to be a real product
 
