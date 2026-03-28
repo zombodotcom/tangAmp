@@ -352,7 +352,7 @@ def make_cabinet_ir(cab_type, n_taps=257, fs=48000):
         freq_interp = np.linspace(0, 1, n_half)
         mag_interp = np.interp(freq_interp, freqs_norm, mag)
         full_mag[:n_half] = mag_interp
-        full_mag[n_half:] = mag_interp[-2:0:-1]
+        full_mag[n_half:] = mag_interp[1:][::-1]
         ir = np.real(np.fft.ifft(full_mag))
         ir = np.roll(ir, n_taps // 2)
 
