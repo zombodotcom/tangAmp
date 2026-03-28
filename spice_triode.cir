@@ -1,0 +1,13 @@
+.title 12AX7 Common Cathode Validation
+VB supply 0 DC 200
+RP supply plate 100k
+VIN input 0 DC 0 SIN(0 0.5 440)
+CIN input grid 22n
+RG grid 0 1MEG
+RK cathode 0 1.5k
+BEd ed 0 V = V(plate,cathode)/600 * ln(1 + exp(600*(0.01 + V(grid,cathode)/sqrt(300 + V(plate,cathode)*V(plate,cathode) + 0.000001))))
+BIp plate cathode I = pwr(max(V(ed),0), 1.4) / 1060
+.options reltol=0.001 abstol=1n vntol=1u
+.ic V(plate)=146 V(cathode)=0.8 V(grid)=0 V(ed)=0.5
+.tran 20.833u 141.67m uic
+.end
