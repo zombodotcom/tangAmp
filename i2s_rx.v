@@ -5,9 +5,9 @@
 // Receives I2S serial bitstream and converts to Q16.16 parallel samples.
 // I2S format: MSB first, 1 BCK delay after LRCK transition, 24-bit data.
 //
-// 24-bit to Q16.16 conversion: sign-extend to 32 bits, then shift right 8
-// to align as Q16.16 (24-bit value has 23 integer + 1 sign bit from ADC,
-// we treat it as a signed fractional value and place it into Q16.16).
+// 24-bit to Q16.16 conversion: sign-extend to 32 bits (no shifting).
+// The I2S frame carries Q16.16 values directly in the lower 24 bits,
+// which covers ±128V — more than enough for guitar-level signals.
 // ============================================================================
 
 module i2s_rx (
@@ -93,11 +93,10 @@ always @(posedge clk or negedge rst_n) begin
         end else if (lrck_rise) begin
             // Right channel starting - output left channel result
             if (is_left && bit_cnt >= 6'd24) begin
-                // Sign-extend 24-bit to 32-bit, shift right 8 for Q16.16
-                // 24-bit full scale ±2^23 → Q16.16 ±2^15 = ±128V range
-                // 0.5V guitar = ~4M in 24-bit → ~16K in Q16.16 = ~0.25V
-                // Good: keeps guitar signals in the ~0.1-1V Q16.16 range
-                audio_l <= $signed({{8{shift_reg[23]}}, shift_reg}) >>> 8;
+                // Sign-extend 24-bit to 32-bit Q16.16
+                // I2S frame carries Q16.16 values directly (fits in 24 bits
+                // for guitar-level signals up to ±128V)
+                audio_l <= {{8{shift_reg[23]}}, shift_reg};
                 valid   <= 1'b1;
             end
             capturing  <= 1'b0;

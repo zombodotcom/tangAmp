@@ -2,8 +2,8 @@
 // tangamp_top_tb.v
 // Full-Chain Testbench for tangAmp Top-Level
 //
-// Generates an I2S bitstream (440Hz/0.5V sine as 24-bit) on adc_dout,
-// captures dac_din output, decodes back to PCM, and writes to file.
+// Generates an I2S bitstream (440Hz/0.5V sine as Q16.16) on adc_dout,
+// captures dac_din output, decodes back to Q16.16, and writes to file.
 // ============================================================================
 
 `timescale 1ns/1ps
@@ -38,13 +38,8 @@ tangamp_top dut (
 
 // ── Sine Wave Table ─────────────────────────────────────────────────────────
 // 440Hz at ~46.875kHz sample rate: ~106.5 samples per period
-// Using 107 samples. 0.5V amplitude as 24-bit signed.
-// 24-bit full scale = 8388607. 0.5V / ~3.3V_ref... but we treat as
-// direct Q16.16 input. 0.5V in Q16.16 = 32768. As 24-bit left-justified
-// in the I2S frame: we send the Q16.16 value's top 24 bits = value[31:8].
-// So 0.5 * 65536 = 32768 -> [31:8] = 128 as 24-bit -> too small.
-// Better: generate 24-bit PCM directly, then on RX side it maps to Q16.16.
-// 0.5V amplitude in 24-bit: 0.5 * 2^23 = 4194304
+// Using 107 samples. 0.5V amplitude in Q16.16 = 32768.
+// Q16.16 values fit in 24-bit I2S frame (±8M range = ±128V).
 localparam SINE_LEN = 107;  // ~46875/440
 
 reg signed [23:0] sine_table [0:SINE_LEN-1];
@@ -53,8 +48,8 @@ real two_pi = 6.2831853;
 
 initial begin
     for (i = 0; i < SINE_LEN; i = i + 1) begin
-        // 0.5V amplitude: half of full-scale 24-bit
-        sine_table[i] = $rtoi($sin(two_pi * i * 1.0 / SINE_LEN) * 4194304.0);
+        // 0.5V amplitude in Q16.16: 0.5 * 65536 = 32768
+        sine_table[i] = $rtoi($sin(two_pi * i * 1.0 / SINE_LEN) * 0.5 * 65536.0);
     end
 end
 
@@ -191,8 +186,8 @@ always @(posedge clk_27m) begin
         end else if (dac_lrck_rise_w) begin
             // Left channel done, output result
             if (rx_capturing && rx_bit_cnt >= 6'd24) begin
-                // Convert 24-bit to Q16.16: sign-extend, shift left 8
-                dac_sample_l <= {{8{rx_sr[23]}}, rx_sr} <<< 8;
+                // Sign-extend 24-bit to Q16.16 (value is already Q16.16)
+                dac_sample_l <= {{8{rx_sr[23]}}, rx_sr};
                 dac_sample_valid <= 1'b1;
             end
             rx_capturing <= 1'b0;
@@ -230,9 +225,9 @@ end
 always @(posedge clk_27m) begin
     if (adc_lrck_fall && btn_rst_n) begin
         if (tx_sample_count >= DC_SETTLE && sine_idx > 0) begin
-            // Convert 24-bit sine to Q16.16 for logging
+            // Sine table is already Q16.16, just sign-extend to 32 bits
             input_log[in_log_wr] <= {{8{sine_table[sine_idx > 0 ? sine_idx - 1 : SINE_LEN-1][23]}},
-                                      sine_table[sine_idx > 0 ? sine_idx - 1 : SINE_LEN-1]} <<< 8;
+                                      sine_table[sine_idx > 0 ? sine_idx - 1 : SINE_LEN-1]};
         end else begin
             input_log[in_log_wr] <= 32'sd0;
         end

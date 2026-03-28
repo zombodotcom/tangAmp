@@ -6,9 +6,8 @@
 // I2S format: MSB first, 1 BCK delay after LRCK transition, 24-bit
 // left-justified in 32-bit frame.
 //
-// Q16.16 -> 24-bit conversion: take bits [31:8] (sign-extend top 8 bits
-// are already there since Q16.16 integer part is 16 bits, we want the
-// top 24 significant bits).
+// Q16.16 -> 24-bit conversion: send lower 24 bits [23:0] directly.
+// For guitar-level signals the Q16.16 value fits in 24 bits (±128V range).
 // ============================================================================
 
 module i2s_tx (
@@ -36,10 +35,10 @@ always @(posedge clk or negedge rst_n) begin
         shift_l <= 32'd0;
         shift_r <= 32'd0;
     end else if (load) begin
-        // Q16.16 to 24-bit left-justified in 32-bit:
-        // Take bits [31:8] as 24-bit value, pad 8 LSBs with 0
-        shift_l <= {audio_l[31:8], 8'd0};
-        shift_r <= {audio_r[31:8], 8'd0};
+        // Q16.16 value fits in 24 bits for guitar signals (±128V range)
+        // Send lower 24 bits left-justified in 32-bit I2S frame
+        shift_l <= {audio_l[23:0], 8'd0};
+        shift_r <= {audio_r[23:0], 8'd0};
     end
 end
 
