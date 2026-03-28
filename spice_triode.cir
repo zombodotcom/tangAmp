@@ -5,6 +5,7 @@ VIN input 0 DC 0 SIN(0 0.5 440)
 CIN input grid 22n
 RG grid 0 1MEG
 RK cathode 0 1.5k
+CK cathode 0 22u
 BEd ed 0 V = V(plate,cathode)/600 * ln(1 + exp(600*(0.01 + V(grid,cathode)/sqrt(300 + V(plate,cathode)*V(plate,cathode) + 0.000001))))
 BIp plate cathode I = pwr(max(V(ed),0), 1.4) / 1060
 .options reltol=0.001 abstol=1n vntol=1u
