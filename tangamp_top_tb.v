@@ -2,7 +2,7 @@
 // tangamp_top_tb.v
 // Full-Chain Testbench for tangAmp Top-Level
 //
-// Generates an I2S bitstream (440Hz/0.5V sine as Q16.16) on adc_dout,
+// Generates an I2S bitstream (440Hz/0.05V sine as Q16.16) on adc_dout,
 // captures dac_din output, decodes back to Q16.16, and writes to file.
 // ============================================================================
 
@@ -38,7 +38,7 @@ tangamp_top dut (
 
 // ── Sine Wave Table ─────────────────────────────────────────────────────────
 // 440Hz at ~46.875kHz sample rate: ~106.5 samples per period
-// Using 107 samples. 0.5V amplitude in Q16.16 = 32768.
+// Using 107 samples. 0.05V amplitude in Q16.16 = 3277.
 // Q16.16 values fit in 24-bit I2S frame (±8M range = ±128V).
 localparam SINE_LEN = 107;  // ~46875/440
 
@@ -48,8 +48,10 @@ real two_pi = 6.2831853;
 
 initial begin
     for (i = 0; i < SINE_LEN; i = i + 1) begin
-        // 0.5V amplitude in Q16.16: 0.5 * 65536 = 32768
-        sine_table[i] = $rtoi($sin(two_pi * i * 1.0 / SINE_LEN) * 0.5 * 65536.0);
+        // 0.05V amplitude in Q16.16: 0.05 * 65536 = 3277
+        // Kept small to avoid I2S clipping at the 2-stage cascade output
+        // (cascade gain ~50dB = 316x; 0.05V * 316 = ~16V, fits 24-bit = ±128V)
+        sine_table[i] = $rtoi($sin(two_pi * i * 1.0 / SINE_LEN) * 0.05 * 65536.0);
     end
 end
 
@@ -75,8 +77,10 @@ reg        tx_active;
 reg        tx_skip_first;
 
 // Sample counter for DC settling
+// Must be long enough for both cascade stages' DC trackers to converge
+// (each stage has DC_SETTLE_SAMPLES=10000 with EMA alpha=1/256)
 integer tx_sample_count;
-localparam DC_SETTLE = 500;
+localparam DC_SETTLE = 12000;
 
 initial begin
     sine_idx = 0;
@@ -248,20 +252,18 @@ always @(posedge clk_27m) begin
 end
 
 // ── Run Simulation ──────────────────────────────────────────────────────────
-// 500 settling + 4800 audio samples at ~46875Hz
+// 12000 settling + 4800 audio samples at ~46875Hz
 // Each sample = 64 BCK * 9 sys_clk = 576 sys_clk
-// Total samples needed: 5300
-// Total clocks: 5300 * 576 = 3,052,800
-// But triode cascade adds latency, so add margin
-// Total time: 5300 * 576 * 37ns = ~113ms
+// Total samples needed: 16800
+// Total time: 16800 * 576 * 37ns * 2 = ~717ms
 
 initial begin
     btn_rst_n = 0;
     #(CLK_PERIOD * 10);
     btn_rst_n = 1;
 
-    // Run for (500 + 4800) samples worth of time, with 2x margin for cascade latency
-    #((500 + 4800) * 576 * CLK_PERIOD * 2);
+    // Run for (12000 + 4800) samples worth of time, with 2x margin for cascade latency
+    #((12000 + 4800) * 576 * CLK_PERIOD * 2);
 
     $fclose(fd);
     $display("Simulation complete. %0d output samples written to top_tb_output.txt", out_sample_count);

@@ -6,8 +6,8 @@
 // I2S format: MSB first, 1 BCK delay after LRCK transition, 24-bit
 // left-justified in 32-bit frame.
 //
-// Q16.16 -> 24-bit conversion: send lower 24 bits [23:0] directly.
-// For guitar-level signals the Q16.16 value fits in 24 bits (±128V range).
+// Q16.16 -> 24-bit conversion: saturate to ±8388607 then send [23:0].
+// 24-bit signed range covers ±128V in Q16.16; values beyond are clamped.
 // ============================================================================
 
 module i2s_tx (
@@ -22,23 +22,34 @@ module i2s_tx (
 );
 
 // ── Sample latches ─────────────────────────────────────────────────────────
-// Convert Q16.16 to 24-bit: saturate/clamp then take top 24 bits
-// For a Q16.16 value, the integer range is -32768..32767
-// 24-bit range is -8388608..8388607
-// Shift Q16.16 left by 8 to get 24-bit left-justified in 32-bit frame:
-//   audio[31:8] gives us the 24 MSBs (16 integer + 8 fraction bits)
+// Convert Q16.16 to 24-bit I2S: saturate to ±8388607 then left-justify.
+// 24-bit signed range: -8388608 .. +8388607 (±128V in Q16.16).
+// If the value exceeds this range, clamp to avoid wrap-around distortion.
 reg [31:0] shift_l;
 reg [31:0] shift_r;
+
+// Saturation helper: clamp Q16.16 to 24-bit range and left-justify
+function [31:0] saturate_24;
+    input signed [31:0] val;
+    reg signed [31:0] clamped;
+    begin
+        if (val > 32'sd8388607)
+            clamped = 32'sd8388607;
+        else if (val < -32'sd8388608)
+            clamped = -32'sd8388608;
+        else
+            clamped = val;
+        saturate_24 = {clamped[23:0], 8'd0};
+    end
+endfunction
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         shift_l <= 32'd0;
         shift_r <= 32'd0;
     end else if (load) begin
-        // Q16.16 value fits in 24 bits for guitar signals (±128V range)
-        // Send lower 24 bits left-justified in 32-bit I2S frame
-        shift_l <= {audio_l[23:0], 8'd0};
-        shift_r <= {audio_r[23:0], 8'd0};
+        shift_l <= saturate_24(audio_l);
+        shift_r <= saturate_24(audio_r);
     end
 end
 
@@ -97,12 +108,12 @@ always @(posedge clk or negedge rst_n) begin
             dout    <= 1'b0;
         end else if (bck_fall && active) begin
             if (bit_cnt == 6'd0) begin
-                // First BCK fall after LRCK edge = end of 1-BCK delay
-                // Output MSB now
-                dout    <= sr[31];
-                sr      <= {sr[30:0], 1'b0};
+                // First BCK fall after LRCK edge: still in 1-BCK delay period.
+                // The RX skips the BCK rise that follows this fall, so we must
+                // not output data yet. Keep dout=0 and advance counter.
+                dout    <= 1'b0;
                 bit_cnt <= 6'd1;
-            end else if (bit_cnt < 6'd32) begin
+            end else if (bit_cnt < 6'd33) begin
                 dout    <= sr[31];
                 sr      <= {sr[30:0], 1'b0};
                 bit_cnt <= bit_cnt + 6'd1;
