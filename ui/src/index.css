@@ -1,0 +1,11 @@
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2129; --border: #30363d;
+  --text: #c9d1d9; --text2: #8b949e; --text3: #484f58;
+  --blue: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922;
+  --green-bg: #238636; --red-bg: #da3633;
+  font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  color: var(--text); background: var(--bg);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { margin: 0; }
+#root { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
