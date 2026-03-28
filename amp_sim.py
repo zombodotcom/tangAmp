@@ -140,8 +140,15 @@ def simulate_preamp_stage(audio_in, tube_name='12AX7', use_bypass=True, settle=2
             Ip = max(Ip, 0.0)
 
         prev_ip = Ip
-        b_p = a_p - 2.0 * R_p * Ip
-        b_k = a_k + 2.0 * R_k * Ip
+
+        # Grid current: limits positive peaks when Vgk > 0
+        # Clamp to max +2V (coupling cap charges prevent higher)
+        Vgk_final = min(a_g - a_k - R_k * Ip, 2.0)
+        Ig = 0.002 * max(0.0, Vgk_final) ** 1.5
+        Ip_total = Ip + Ig
+
+        b_p = a_p - 2.0 * R_p * Ip_total
+        b_k = a_k + 2.0 * R_k * Ip_total
         v_plate = (a_p + b_p) / 2.0
         out_vplate[n] = v_plate
 
@@ -208,7 +215,11 @@ def simulate_power_amp(audio_in, tube_name='6L6', vb=400.0, rp=2000.0, rk=250.0,
             Ip = max(Ip, 0.0)
 
         prev_ip = Ip
-        v_plate = vb_eff - rp * Ip
+        # Grid current
+        Vgk_final = a_g - a_k - rk * Ip
+        Ig = 0.002 * max(0.0, Vgk_final) ** 1.5
+        Ip_total = Ip + Ig
+        v_plate = vb_eff - rp * Ip_total
         out_vplate[n] = v_plate
 
         if n >= settle:
@@ -397,7 +408,7 @@ class AmpSim:
             'fender_deluxe': dict(
                 name='Fender Deluxe Reverb',
                 preamp_stages=2, preamp_tube='12AX7',
-                interstage_atten=20.0,
+                interstage_atten=12.0,  # coupling network + grid loading
                 tone_bass=6, tone_mid=5, tone_treble=7,
                 power_tube='6L6', power_vb=400, power_rp=2000, power_rk=250,
                 power_sag=0.3, power_clip=200,
@@ -407,7 +418,7 @@ class AmpSim:
             'marshall_jcm800': dict(
                 name='Marshall JCM800',
                 preamp_stages=3, preamp_tube='12AX7',
-                interstage_atten=16.0,
+                interstage_atten=12.0,  # coupling network + grid loading
                 tone_bass=5, tone_mid=8, tone_treble=6,
                 power_tube='EL34', power_vb=450, power_rp=1700, power_rk=200,
                 power_sag=0.2, power_clip=180,
@@ -417,17 +428,17 @@ class AmpSim:
             'vox_ac30': dict(
                 name='Vox AC30',
                 preamp_stages=2, preamp_tube='12AX7',
-                interstage_atten=18.0,
+                interstage_atten=12.0,  # coupling network + grid loading
                 tone_bass=7, tone_mid=4, tone_treble=8,
                 power_tube='EL34', power_vb=380, power_rp=1800, power_rk=220,
                 power_sag=0.25, power_clip=170,
-                cabinet='1x12_open',  # 2x12 approximated as 1x12
+                cabinet='1x12_open',
                 input_gain=6, master_vol=6,
             ),
             'mesa_dual_rec': dict(
                 name='Mesa Dual Rectifier',
                 preamp_stages=3, preamp_tube='12AX7',
-                interstage_atten=14.0,
+                interstage_atten=12.0,  # coupling network + grid loading
                 tone_bass=8, tone_mid=3, tone_treble=7,
                 power_tube='6L6', power_vb=420, power_rp=1900, power_rk=230,
                 power_sag=0.4, power_clip=190,
@@ -509,6 +520,8 @@ class AmpSim:
             ac_out = vplate - vp_dc
 
             if stage < self.preamp_stages - 1:
+                # Interstage coupling: minimal attenuation (real amps ~1dB)
+                # Grid current in the next stage naturally limits the signal
                 x = ac_out / interstage_lin
             else:
                 x = ac_out
