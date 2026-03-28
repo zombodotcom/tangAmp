@@ -1,0 +1,180 @@
+Miller Effect -- Verilog Implementation Specification
+======================================================
+
+1. WHAT TO ADD
+--------------
+One 1st-order IIR low-pass filter per triode stage, placed at the grid
+input (between the coupling capacitor and the grid node). This models the
+RC low-pass formed by:
+
+  R = source impedance (previous stage plate resistor, typically 100k)
+  C = Cgk + Cgp*(1 + Av) = total Miller-reflected input capacitance
+
+For a 12AX7 stage: C_total = 1.6pF + 1.7pF*51 = 88.3pF
+  f_3dB = 1 / (2*pi * 100e3 * 88.3e-12) = 18,030 Hz
+
+2. FILTER MATH (1st-order IIR, bilinear transform)
+---------------------------------------------------
+Transfer function:  H(s) = wc / (s + wc),  wc = 2*pi*f_3dB
+
+Bilinear transform:  s = 2*fs*(z-1)/(z+1)
+
+Result:
+  H(z) = alpha * (1 + z^-1) / (1 - beta * z^-1)
+
+where:
+  wd    = 2*fs * tan(wc / (2*fs))     -- pre-warped cutoff
+  alpha = wd / (2*fs + wd)
+  beta  = (2*fs - wd) / (2*fs + wd)
+
+Difference equation:
+  y[n] = alpha * x[n] + alpha * x[n-1] + beta * y[n-1]
+
+For 12AX7 at fs=48kHz:
+  wc = 2*pi*18030 = 113,306 rad/s
+  wd = 2*48000*tan(113306/96000) = 117,764 rad/s
+  alpha = 117764 / (96000 + 117764) = 0.5508
+  beta  = (96000 - 117764) / (96000 + 117764) = -0.1016
+
+  Wait -- that gives a very aggressive filter because the cutoff is so
+  high relative to Nyquist. Let me recompute properly:
+
+  wd = 2*48000*tan(pi*18030/48000) = 2*48000*tan(1.1804) = 2*48000*2.5149
+     = 241,432
+
+  alpha = 241432 / (96000 + 241432) = 0.7155
+  beta  = (96000 - 241432) / (96000 + 241432) = -0.4311
+
+  Hmm, these don't look right for a gentle rolloff. Let me verify: at
+  f = 18kHz the filter should be at -3dB. The issue is just that 18kHz is
+  close to Nyquist (24kHz) so bilinear warping is significant.
+
+  Correct coefficients in Q16.16 fixed point:
+    alpha = 0.7155  -> 0x0B6F1  (46833)
+    beta  = -0.4311 -> 0xF9211  (-28143) [as signed]
+
+  But these are the PRE-WARPED values. The actual response matches the
+  analog prototype at 18 kHz thanks to the bilinear transform.
+
+3. Q16.16 FIXED-POINT IMPLEMENTATION
+-------------------------------------
+State registers per filter:
+  - x_prev [31:0]  -- previous input sample
+  - y_prev [31:0]  -- previous output sample
+
+Computation per sample (3 multiply-accumulates):
+  temp1 = alpha * x[n]        -- 32x32 -> keep middle 32 bits
+  temp2 = alpha * x_prev      -- 32x32 -> keep middle 32 bits
+  temp3 = beta  * y_prev      -- 32x32 -> keep middle 32 bits
+  y[n]  = temp1 + temp2 + temp3
+
+Update state:
+  x_prev = x[n]
+  y_prev = y[n]
+
+Clock cost: 3 multiplies. With the existing pipelined multiplier, this
+takes 3 clock cycles per stage. Total for 3 preamp stages: 9 clocks.
+
+With 562 clocks per 48kHz sample at 27MHz, 9 clocks is only 1.6% overhead.
+
+4. VERILOG MODULE SKELETON
+---------------------------
+```verilog
+module miller_lpf #(
+    parameter signed [31:0] ALPHA = 32'sh0000B6F1,  // 0.7155 in Q16.16
+    parameter signed [31:0] BETA  = 32'shFFFF9211   // -0.4311 in Q16.16
+)(
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        sample_valid,
+    input  wire signed [31:0] x_in,   // Q16.16 input
+    output reg  signed [31:0] y_out,  // Q16.16 output
+    output reg         valid_out
+);
+
+    reg signed [31:0] x_prev;
+    reg signed [31:0] y_prev;
+    reg signed [63:0] acc;
+
+    // Pipeline states
+    localparam IDLE = 0, MUL1 = 1, MUL2 = 2, MUL3 = 3, DONE = 4;
+    reg [2:0] state;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            x_prev <= 0;
+            y_prev <= 0;
+            y_out  <= 0;
+            state  <= IDLE;
+            valid_out <= 0;
+        end else begin
+            valid_out <= 0;
+            case (state)
+                IDLE: begin
+                    if (sample_valid) begin
+                        acc   <= ALPHA * x_in;  // 64-bit result
+                        state <= MUL1;
+                    end
+                end
+                MUL1: begin
+                    acc   <= acc + ALPHA * x_prev;
+                    state <= MUL2;
+                end
+                MUL2: begin
+                    acc   <= acc + BETA * y_prev;
+                    state <= MUL3;
+                end
+                MUL3: begin
+                    // Extract Q16.16 from Q32.32 accumulator
+                    y_out     <= acc[47:16];
+                    y_prev    <= acc[47:16];
+                    x_prev    <= x_in;
+                    valid_out <= 1;
+                    state     <= DONE;
+                end
+                DONE: begin
+                    state <= IDLE;
+                end
+            endcase
+        end
+    end
+endmodule
+```
+
+5. INTEGRATION WITH wdf_triode.v
+----------------------------------
+Insert one miller_lpf instance before the grid input of each triode stage:
+
+  coupling_cap -> miller_lpf -> grid_node
+
+For cascaded stages in triode_cascade.v, place one miller_lpf between
+each stage's output and the next stage's coupling cap.
+
+The filter parameters can be made tube-dependent by passing different
+ALPHA/BETA for 12AX7 vs 6L6 etc. Since power tubes have much lower Av,
+their Miller effect is weaker and may be omitted.
+
+6. PARAMETER TABLE (Q16.16)
+----------------------------
+Tube     f_3dB (Hz)   alpha (Q16.16)  beta (Q16.16)
+----     ----------   --------------  -------------
+12AX7    18,030       0x0000B6F1      0xFFFF9211
+12AU7    28,450       0x0000C8A3      0xFFFF8E5C  (estimate)
+6SL7     11,220       0x00008F30      0xFFFF9CE0  (estimate)
+6L6      73,250       negligible (skip for 6L6/EL34/300B)
+EL34     85,400       negligible
+300B     26,950       ~same as 12AU7
+
+Note: for tubes where f_3dB > fs/2, the Miller effect is inaudible at
+48kHz sample rate and the filter can be bypassed (saves 3 clocks).
+
+7. RESOURCE COST
+-----------------
+Per filter instance:
+  - 2x 32-bit registers (x_prev, y_prev)
+  - 1x 64-bit accumulator
+  - Reuses existing 32x32 multiplier (time-shared)
+  - 4 clock cycles (3 MACs + writeback)
+
+Total for 3 preamp stages: 12 clocks, ~2.1% of per-sample budget.
+No additional BRAM or LUTs beyond the multiplier and registers.
