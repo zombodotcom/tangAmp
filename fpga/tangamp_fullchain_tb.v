@@ -79,8 +79,7 @@ wire signed [31:0] triode_out;
 wire triode_valid;
 
 triode_engine #(
-    .NUM_STAGES  (2),
-    .ATTEN_SHIFT (5)
+    .NUM_STAGES  (2)
 ) u_triode (
     .clk       (clk),
     .rst_n     (rst_n),

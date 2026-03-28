@@ -98,8 +98,7 @@ wire triode_valid;
 
 triode_engine #(
     .NUM_STAGES  (2),
-    .POWER_AMP   (1),
-    .ATTEN_SHIFT (5)
+    .POWER_AMP   (1)
 ) triode (
     .clk       (clk_27m),
     .rst_n     (rst_n),

@@ -15,7 +15,6 @@
 module triode_engine #(
     parameter NUM_STAGES  = 2,        // preamp stages (12AX7)
     parameter POWER_AMP   = 1,        // 1 = add 6L6 power amp as final stage
-    parameter ATTEN_SHIFT = 5,        // right-shift between stages (~-30dB)
     parameter FP_FRAC     = 16,
     parameter FP_WIDTH    = 32,
     parameter LUT_BITS    = 7,
@@ -97,6 +96,21 @@ initial begin
     $readmemh("data/dip_dvpk_lut_6l6.hex", dip_vpk_lut_pa);
 end
 
+// Grid current LUTs (shared across all stages)
+localparam IG_LUT_SIZE = 64;
+localparam IG_LUT_BITS = 6;
+localparam signed [FP_WIDTH-1:0] IG_VGK_MAX_FP = 32'sd131072;
+localparam signed [FP_WIDTH-1:0] IG_VGK_STEP_FP = 32'sd2080;
+localparam integer RG_INT = 1000000;
+
+reg signed [15:0] ig_lut  [0:IG_LUT_SIZE-1];
+reg signed [15:0] dig_lut [0:IG_LUT_SIZE-1];
+
+initial begin
+    $readmemh("data/ig_lut.hex", ig_lut);
+    $readmemh("data/dig_lut.hex", dig_lut);
+end
+
 // ============================================================================
 // LUT Address Functions
 // ============================================================================
@@ -146,6 +160,21 @@ function automatic [LUT_BITS-1:0] vgk_to_idx_pa;
     end
 endfunction
 
+function automatic [IG_LUT_BITS-1:0] vgk_to_ig_idx;
+    input signed [FP_WIDTH-1:0] vgk_fp;
+    reg signed [63:0] tmp;
+    begin
+        if (vgk_fp <= 0)
+            vgk_to_ig_idx = 0;
+        else if (vgk_fp >= IG_VGK_MAX_FP)
+            vgk_to_ig_idx = IG_LUT_SIZE - 1;
+        else begin
+            tmp = ($signed({vgk_fp, 16'b0})) / $signed(IG_VGK_STEP_FP);
+            vgk_to_ig_idx = tmp[IG_LUT_BITS-1:0];
+        end
+    end
+endfunction
+
 // ============================================================================
 // State Machine
 // ============================================================================
@@ -178,6 +207,7 @@ reg signed [FP_WIDTH-1:0] bank_hp_prev_in  [0:TOTAL_STAGES-1];
 reg signed [FP_WIDTH-1:0] bank_hp_prev_out [0:TOTAL_STAGES-1];
 reg signed [FP_WIDTH-1:0] bank_ck_z        [0:TOTAL_STAGES-1];
 reg signed [FP_WIDTH-1:0] bank_ip_prev     [0:TOTAL_STAGES-1];
+reg signed [FP_WIDTH-1:0] bank_ig_prev     [0:TOTAL_STAGES-1];
 reg signed [FP_WIDTH-1:0] bank_vp_dc       [0:TOTAL_STAGES-1];
 reg [15:0]                bank_sample_count [0:TOTAL_STAGES-1];
 reg                       bank_dc_frozen    [0:TOTAL_STAGES-1];
@@ -205,6 +235,18 @@ reg signed [15:0] dip_vpk_raw;
 reg signed [FP_WIDTH-1:0] ip_model;
 reg signed [FP_WIDTH-1:0] dip_vgk_val;
 reg signed [FP_WIDTH-1:0] dip_vpk_val;
+
+// 2x2 Newton solver registers
+reg signed [FP_WIDTH-1:0] ig_est;
+reg signed [FP_WIDTH-1:0] ig_prev;
+reg signed [15:0] ig_raw;
+reg signed [15:0] dig_raw;
+reg signed [FP_WIDTH-1:0] f1_val;
+reg signed [FP_WIDTH-1:0] f2_val;
+reg signed [63:0] j11, j12, j21, j22;
+reg signed [63:0] det;
+reg signed [63:0] dIp_num, dIg_num;
+reg signed [63:0] temp_b;
 
 reg signed [FP_WIDTH-1:0] vp_dc;
 reg [15:0] sample_count;
@@ -235,6 +277,7 @@ initial begin
         bank_hp_prev_out[init_i]  = 0;
         bank_ck_z[init_i]         = 32'sd53000;
         bank_ip_prev[init_i]      = 32'sd35;
+        bank_ig_prev[init_i]      = 0;
         bank_vp_dc[init_i]        = VP_DC_INIT;
         bank_sample_count[init_i] = 0;
         bank_dc_frozen[init_i]    = 0;
@@ -259,9 +302,15 @@ always @(posedge clk or negedge rst_n) begin
         b_cathode     <= 32'sd53000;
         ip_est        <= 0;
         ip_prev       <= 32'sd35;
+        ig_est        <= 0;
+        ig_prev       <= 0;
         vpk_est       <= 0;
         vgk_est       <= 0;
         newton_iter   <= 0;
+        ig_raw        <= 0;
+        dig_raw       <= 0;
+        f1_val        <= 0;
+        f2_val        <= 0;
         lut_addr      <= 0;
         ip_raw        <= 0;
         dip_vgk_raw   <= 0;
@@ -312,6 +361,8 @@ always @(posedge clk or negedge rst_n) begin
             end
 
             ip_est      <= bank_ip_prev[current_stage];
+            ig_prev     <= bank_ig_prev[current_stage];
+            ig_est      <= bank_ig_prev[current_stage];
             newton_iter <= 0;
             state       <= ST_HP;
         end
@@ -359,6 +410,9 @@ always @(posedge clk or negedge rst_n) begin
                 dip_vgk_raw <= dip_vgk_lut[lut_addr];
                 dip_vpk_raw <= dip_vpk_lut[lut_addr];
             end
+            // Grid current LUT read
+            ig_raw  <= ig_lut[vgk_to_ig_idx(vgk_est)];
+            dig_raw <= dig_lut[vgk_to_ig_idx(vgk_est)];
             state <= ST_NR_CONV;
         end
 
@@ -372,19 +426,34 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Newton step ────────────────────────────────────────────────
         ST_NR_STEP: begin
-            f_val = ip_est - ip_model;
+            f1_val = ip_est - ip_model;
+            f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
+
+            // J11 = 1 + dIp/dVpk * Rpk_active
             temp_a = ($signed(dip_vpk_raw) * rpk_active) <<< FP_FRAC;
-            fp_val = ONE_FP + temp_a / DIP_VPK_SCALE;
+            j11 = ONE_FP + temp_a / DIP_VPK_SCALE;
 
-            step_num = {f_val, 16'b0};
-            if (fp_val != 0)
-                step = step_num / $signed(fp_val);
-            else
-                step = 0;
+            // J12 = dIp/dVgk * Rg
+            temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
+            j12 = temp_b / DIP_SCALE;
 
-            ip_est <= ip_est - step;
-            if ((ip_est - step) < 0)
-                ip_est <= 0;
+            // J21 = 0
+            j21 = 0;
+
+            // J22 = 1 + dIg/dVgk * Rg
+            temp_a = ($signed({{16{dig_raw[15]}}, dig_raw}) * $signed(RG_INT));
+            j22 = ONE_FP + temp_a[47:16];
+
+            det = (j11 * j22) >>> FP_FRAC;
+            dIp_num = (j22 * $signed(f1_val) - j12 * $signed(f2_val)) >>> FP_FRAC;
+            dIg_num = (j11 * $signed(f2_val)) >>> FP_FRAC;
+
+            if (det != 0) begin
+                ip_est <= ip_est - dIp_num / det;
+                ig_est <= ig_est - dIg_num / det;
+                if ((ip_est - dIp_num / det) < 0) ip_est <= 0;
+                if ((ig_est - dIg_num / det) < 0) ig_est <= 0;
+            end
 
             if (newton_iter == 0) begin
                 newton_iter <= 1;
@@ -396,24 +465,10 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Compute stage output with grid current ──────────────────────
         ST_OUTPUT: begin
-            // Grid current: when Vgk > 0, Ig adds to total plate current
-            // This limits positive grid swing in cascaded stages
+            // Use converged ig_est from 2x2 Newton solver
             begin
-                reg signed [FP_WIDTH-1:0] ig_est;
                 reg signed [FP_WIDTH-1:0] ip_total;
-
-                if (vgk_est > 0) begin
-                    if (vgk_est < 32'sd32768)
-                        ig_est = vgk_est >>> 10;
-                    else if (vgk_est < 32'sd65536)
-                        ig_est = 32'sd32 + ((vgk_est - 32'sd32768) >>> 9);
-                    else
-                        ig_est = 32'sd96 + ((vgk_est - 32'sd65536) >>> 8);
-                    ip_total = ip_est + ig_est;
-                end else begin
-                    ig_est = 0;
-                    ip_total = ip_est;
-                end
+                ip_total = ip_est + ig_est;
 
                 temp64 = rp_active * $signed(ip_total);
                 stage_out <= (vb_active - temp64[31:0]) - vp_dc;
@@ -421,8 +476,8 @@ always @(posedge clk or negedge rst_n) begin
 
             ip_prev <= ip_est;
 
-            // Update cathode bypass cap
-            temp64b = $signed(TWO_R_CATH_FP) * $signed(ip_est);
+            // Update cathode bypass cap using total current (Ip + Ig)
+            temp64b = $signed(TWO_R_CATH_FP) * $signed(ip_est + ig_est);
             ck_z <= (b_cathode + temp64b[47:16]) + b_cathode - ck_z;
 
             // DC tracking
@@ -444,6 +499,7 @@ always @(posedge clk or negedge rst_n) begin
             bank_hp_prev_out[current_stage]  <= hp_prev_out;
             bank_ck_z[current_stage]         <= ck_z;
             bank_ip_prev[current_stage]      <= ip_prev;
+            bank_ig_prev[current_stage]      <= ig_est;
             bank_vp_dc[current_stage]        <= vp_dc;
             bank_sample_count[current_stage] <= sample_count;
             bank_dc_frozen[current_stage]    <= dc_frozen;
@@ -455,7 +511,7 @@ always @(posedge clk or negedge rst_n) begin
                 state     <= ST_IDLE;
             end else begin
                 // Attenuate output and feed to next stage
-                stage_input   <= stage_out >>> ATTEN_SHIFT;
+                stage_input   <= stage_out;
                 current_stage <= current_stage + 1;
                 state         <= ST_LOAD;
             end
