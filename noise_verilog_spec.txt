@@ -1,0 +1,208 @@
+==============================================================================
+Noise Modeling on FPGA -- Implementation Specification for Tang Nano 20K
+==============================================================================
+
+Target: Gowin GW2A, 27 MHz clock, 48 kHz audio, Q16.16 fixed point.
+
+This document describes how to add realistic tube amp noise to the FPGA
+signal path using minimal resources.
+
+------------------------------------------------------------------------------
+1. LFSR-Based White Noise Generator
+------------------------------------------------------------------------------
+
+A 32-bit maximal-length LFSR provides pseudo-random white noise.
+Polynomial: x^32 + x^22 + x^2 + x^1 + 1 (period = 2^32 - 1).
+
+    reg [31:0] lfsr = 32'hDEAD_BEEF;  // nonzero seed
+
+    wire feedback = lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0];
+    always @(posedge clk) begin
+        if (sample_tick)
+            lfsr <= {lfsr[30:0], feedback};
+    end
+
+    // Use upper 16 bits as signed noise sample
+    wire signed [15:0] white_noise = lfsr[31:16];
+
+Resource cost: 32 flip-flops + 3 XOR gates.
+
+For multiple independent noise sources, use different seeds or tap
+different bit ranges from a wider LFSR (e.g., 64-bit).
+
+------------------------------------------------------------------------------
+2. Thermal Noise (Johnson-Nyquist)
+------------------------------------------------------------------------------
+
+Physical level: V_rms = sqrt(4 * k * T * R * BW)
+
+For Rg = 1M at 300K, BW = 24kHz:
+    V_rms = sqrt(4 * 1.38e-23 * 300 * 1e6 * 24000) = ~20 uV
+
+In Q16.16 fixed point:
+    20 uV = 20e-6 * 65536 = ~1.3 LSBs
+
+Implementation: scale the LFSR output by a constant.
+    thermal_rg = (white_noise * THERMAL_RG_SCALE) >>> 16;
+
+Pre-computed scale constants (Q16.16):
+    Rg (1M):   THERMAL_RG_SCALE = 1     (floor, ~1 LSB -- near quantization)
+    Rp (100k): THERMAL_RP_SCALE = 0     (below noise floor, can omit)
+    Rk (1.5k): negligible, omit
+
+Conclusion: Rg thermal noise is at the Q16.16 quantization floor.
+The LFSR dithering itself provides comparable noise. For higher-fidelity
+simulation, use Q20.12 or add explicit 1-LSB dither.
+
+------------------------------------------------------------------------------
+3. Shot Noise
+------------------------------------------------------------------------------
+
+For Ip = 0.8 mA (12AX7 quiescent):
+    I_rms = sqrt(2 * 1.6e-19 * 0.8e-3 * 24000) = ~2.5 nA
+    V at plate = 2.5 nA * 100k = 0.25 uV  (negligible in Q16.16)
+
+For power stage Ip = 40 mA:
+    I_rms = sqrt(2 * 1.6e-19 * 40e-3 * 24000) = ~17.5 nA
+    Still negligible.
+
+Conclusion: Shot noise is well below Q16.16 resolution. Omit.
+
+------------------------------------------------------------------------------
+4. 1/f Flicker Noise
+------------------------------------------------------------------------------
+
+Empirically ~1-5 uV RMS referred to grid. Below Q16.16 resolution for
+a single stage, but accumulates across cascaded stages.
+
+FPGA implementation (if desired): IIR leaky integrator on white noise.
+
+    // Single-pole lowpass: y[n] = alpha * y[n-1] + (1-alpha) * x[n]
+    // alpha = 0.999 in Q16.16 = 65503
+    parameter ALPHA = 32'sd65503;   // 0.999 * 65536
+
+    reg signed [31:0] pink_state = 0;
+    wire signed [31:0] pink_noise;
+
+    always @(posedge clk) begin
+        if (sample_tick) begin
+            // pink_state = alpha * pink_state + (1-alpha) * white
+            pink_state <= (ALPHA * pink_state >>> 16)
+                        + ((32'sd65536 - ALPHA) * {{16{white_noise[15]}}, white_noise} >>> 16);
+        end
+    end
+
+    // Scale down to appropriate level
+    assign pink_noise = pink_state >>> FLICKER_SHIFT;
+
+Resource cost: 1 multiplier + 1 adder + 32 FFs.
+
+For a better 1/f approximation, cascade 3 such filters with different
+alpha values (0.999, 0.996, 0.985). Cost: 3 multipliers.
+
+------------------------------------------------------------------------------
+5. Power Supply Hum (120 Hz)
+------------------------------------------------------------------------------
+
+The most perceptually important noise source. Implement as a DDS
+(Direct Digital Synthesis) sine oscillator.
+
+120 Hz at 48 kHz:
+    Phase increment = round(120 / 48000 * 2^32) = 10737418
+
+    reg [31:0] hum_phase = 0;
+    wire signed [15:0] hum_sine;  // from sine LUT or CORDIC
+
+    always @(posedge clk) begin
+        if (sample_tick)
+            hum_phase <= hum_phase + 32'd10737418;
+    end
+
+Sine lookup: use a 256-entry, 16-bit quarter-wave sine table (256 bytes
+of BRAM) with symmetry exploitation, or use the existing CORDIC if
+available.
+
+Add harmonics at 240 Hz and 360 Hz with reduced amplitude:
+    hum_total = hum_120 + (hum_240 >>> 2) + (hum_360 >>> 3);
+
+Scale the hum to the desired ripple level (typically 2-5 mV on B+):
+    hum_out = hum_total * HUM_SCALE >>> 16;
+
+Resource cost: 3 phase accumulators + 1 small sine LUT + 2 adders.
+
+For user control, make HUM_SCALE a register settable via SPI/UART.
+
+------------------------------------------------------------------------------
+6. Injection Points in Signal Path
+------------------------------------------------------------------------------
+
+    Guitar In ──> [+ Rg thermal + flicker] ──> Triode Stage 1
+                                                    │
+                                          [+ shot + hum at plate]
+                                                    │
+                                                    v
+                  [+ Rg thermal + flicker] ──> Triode Stage 2
+                                                    │
+                                          [+ shot + hum at plate]
+                                                    │
+                                                    v
+                                              Power Amp Stage
+                                          [+ hum (larger ripple)]
+                                                    │
+                                                    v
+                                              Cabinet IR ──> Output
+
+In Verilog, inject noise after the WDF scattering computation:
+
+    // After triode root computation
+    wire signed [31:0] vplate_noisy = vplate_clean + thermal_noise
+                                                   + hum_scaled;
+
+------------------------------------------------------------------------------
+7. Resource Budget (Tang Nano 20K)
+------------------------------------------------------------------------------
+
+Component                    LUTs    FFs    BRAM    Multipliers
+LFSR (32-bit)                  3      32       0        0
+Thermal noise scale            0       0       0        1
+Pink noise (3-pole)           10      96       0        3
+Hum DDS (3 harmonics)        20      96       0        0
+Sine LUT (256 x 16-bit)       0       0       1        0
+Noise mixing/scaling          10      32       0        2
+─────────────────────────────────────────────────────────
+TOTAL                        ~43    ~256       1        6
+
+This is <1% of the GW2A's 20K LUTs and a small fraction of BRAM.
+
+------------------------------------------------------------------------------
+8. User Controls (Optional)
+------------------------------------------------------------------------------
+
+Expose these as SPI/UART registers for real-time control:
+
+    NOISE_ENABLE    : 1-bit, master noise on/off
+    HUM_LEVEL       : 8-bit, power supply hum amplitude (0-255)
+    NOISE_LEVEL     : 8-bit, broadband noise amplitude
+    HUM_FREQ        : 1-bit, select 50 Hz (PAL) vs 60 Hz (NTSC) mains
+
+This lets the user dial in the exact amount of "vintage character" they
+want, from pristine to filthy.
+
+------------------------------------------------------------------------------
+9. Psychoacoustic Notes
+------------------------------------------------------------------------------
+
+- 120 Hz hum is the single most recognizable characteristic of a tube amp
+  at idle. Even at -60 dB below signal, it is audible in quiet passages.
+
+- 1/f noise gives the amp its "breathing" quality -- a slowly varying
+  background texture that pure white noise lacks.
+
+- At high gain (3+ cascaded stages), noise is amplified ~60-80 dB by
+  subsequent stages, making even tiny noise sources audible. This is why
+  cranked Marshall amps hiss -- it is Rg thermal noise amplified by
+  3 stages of 12AX7 gain.
+
+- The noise floor interacts with the tube's nonlinearity: when the signal
+  is near zero crossing, noise modulates the bias point, creating subtle
+  intermodulation products that add "warmth."
