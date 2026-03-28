@@ -274,6 +274,40 @@ tube_plot_path = os.path.join(DEMOS_DIR, "tube_plot.png")
 plt.savefig(tube_plot_path, dpi=150, bbox_inches='tight')
 print(f"  Written: {tube_plot_path}")
 
+# ─── Grid Current LUTs (for 2x2 Newton-Raphson solver) ──────────────────────
+# Langmuir-Child law: Ig = 0.002 * Vgk^1.5 when Vgk > 0
+# Derivative: dIg/dVgk = 0.003 * Vgk^0.5
+IG_LUT_SIZE = 64
+IG_VGK_MAX = 2.0  # volts
+
+Vgk_ig_axis = np.linspace(0.0, IG_VGK_MAX, IG_LUT_SIZE)
+
+ig_values = 0.002 * Vgk_ig_axis**1.5
+dig_values = 0.003 * Vgk_ig_axis**0.5
+
+# Q16.16 fixed point: multiply by 65536, store as unsigned 16-bit hex
+ig_fp = (ig_values * 65536).astype(np.uint16)
+dig_fp = (dig_values * 65536).astype(np.uint16)
+
+ig_lut_path = os.path.join(DATA_DIR, "ig_lut.hex")
+with open(ig_lut_path, 'w') as f:
+    for val in ig_fp:
+        f.write(f"{val:04X}\n")
+print(f"  Written: {ig_lut_path} ({IG_LUT_SIZE} entries)")
+
+dig_lut_path = os.path.join(DATA_DIR, "dig_lut.hex")
+with open(dig_lut_path, 'w') as f:
+    for val in dig_fp:
+        f.write(f"{val:04X}\n")
+print(f"  Written: {dig_lut_path} ({IG_LUT_SIZE} entries)")
+
+IG_VGK_MAX_FP = int(IG_VGK_MAX * 65536)
+IG_VGK_STEP_FP = int((IG_VGK_MAX / (IG_LUT_SIZE - 1)) * 65536)
+print(f"\n  Grid current LUT parameters (for Verilog):")
+print(f"    IG_LUT_SIZE   = {IG_LUT_SIZE}")
+print(f"    IG_VGK_MAX_FP = {IG_VGK_MAX_FP}  // {IG_VGK_MAX}V in Q16.16")
+print(f"    IG_VGK_STEP_FP = {IG_VGK_STEP_FP}  // {IG_VGK_MAX}/{IG_LUT_SIZE-1} * 65536")
+
 # ─── Summary ──────────────────────────────────────────────────────────────────
 print(f"\nDone. Files generated for {LUT_SIZE}x{LUT_SIZE} LUTs:")
 print(f"  ip_lut.hex / dip_dvgk_lut.hex / dip_dvpk_lut.hex  (12AX7 preamp)")
