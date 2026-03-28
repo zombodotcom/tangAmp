@@ -1,0 +1,255 @@
+SD Card Cabinet IR Loading — Design Specification
+==================================================
+tangAmp FPGA Tube Amp Emulator — Tang Nano 20K
+Date: 2026-03-28
+
+1. OVERVIEW
+-----------
+Load cabinet impulse response (IR) data from an onboard MicroSD card at
+runtime, eliminating the need to re-synthesize the FPGA when changing
+cabinet simulations. The Tang Nano 20K has a built-in MicroSD card slot
+connected directly to the GW2AR-18 FPGA via 6 pins.
+
+Key insight: each cabinet IR is exactly 256 taps x 16 bits = 512 bytes,
+which is exactly one SD card sector. Loading an IR = reading one sector.
+
+2. HARDWARE — Tang Nano 20K MicroSD Pin Assignments
+----------------------------------------------------
+The onboard TF (MicroSD) card slot is connected to the FPGA as follows
+(from the Tang Nano 20K schematic v1.3 and confirmed by community
+projects such as NESTang and tang-nano-20k--riscv--cache-sdram):
+
+    Signal      FPGA Pin    SD Card Pin     SPI Mode Function
+    --------    --------    -----------     ----------------
+    sd_clk      83          5 (CLK)         SPI SCLK
+    sd_cmd      82          2 (CMD)         SPI MOSI
+    sd_dat[0]   84          7 (DAT0)        SPI MISO
+    sd_dat[1]   85          8 (DAT1)        (unused in SPI, tie high)
+    sd_dat[2]   80          1 (DAT2)        (unused in SPI, tie high)
+    sd_dat[3]   81          6 (DAT3/CD)     SPI CS (active low)
+
+In SPI mode, only 4 signals are needed:
+  - SCLK  = sd_clk  (pin 83)  — clock output
+  - MOSI  = sd_cmd   (pin 82)  — data to card
+  - MISO  = sd_dat0  (pin 84)  — data from card
+  - CS    = sd_dat3  (pin 81)  — chip select (active low)
+
+sd_dat[1] and sd_dat[2] must be driven high (inactive) to keep the card
+in SPI mode.
+
+Constraint file additions:
+
+    IO_LOC  "sd_clk"    83;
+    IO_PORT "sd_clk"    IO_TYPE=LVCMOS33 DRIVE=8;
+    IO_LOC  "sd_cmd"    82;
+    IO_PORT "sd_cmd"    IO_TYPE=LVCMOS33 DRIVE=8;
+    IO_LOC  "sd_dat0"   84;
+    IO_PORT "sd_dat0"   IO_TYPE=LVCMOS33 PULL_MODE=UP;
+    IO_LOC  "sd_dat1"   85;
+    IO_PORT "sd_dat1"   IO_TYPE=LVCMOS33 DRIVE=8;
+    IO_LOC  "sd_dat2"   80;
+    IO_PORT "sd_dat2"   IO_TYPE=LVCMOS33 DRIVE=8;
+    IO_LOC  "sd_dat3"   81;
+    IO_PORT "sd_dat3"   IO_TYPE=LVCMOS33 DRIVE=8;
+
+3. SD CARD SPI PROTOCOL — Initialization Sequence
+--------------------------------------------------
+SD cards in SPI mode require a specific initialization sequence. All
+commands are 6 bytes: start bit (0), command index (6 bits), argument
+(32 bits), CRC (7 bits), stop bit (1).
+
+Step 1: Power-up delay
+    Wait >= 1ms after power-on (27000 clocks at 27MHz).
+
+Step 2: Send >= 74 clock pulses with CS high, MOSI high
+    This puts the card into native SD mode first. We send 80 clocks
+    (10 bytes of 0xFF) with CS deasserted.
+
+Step 3: CMD0 (GO_IDLE_STATE) — Reset card, enter SPI mode
+    Command:  0x40 0x00 0x00 0x00 0x00 0x95 (CRC valid for CMD0)
+    CS:       Low
+    Expected: R1 = 0x01 (idle state)
+
+Step 4: CMD8 (SEND_IF_COND) — Voltage check (SDv2/SDHC detection)
+    Command:  0x48 0x00 0x00 0x01 0xAA 0x87
+    CS:       Low
+    Expected: R7 response, echo back 0x1AA if SDv2+
+    If no response / illegal command: SDv1 card (rare today)
+
+Step 5: ACMD41 (SD_SEND_OP_COND) — Initialize card
+    This is an "application command" requiring CMD55 prefix.
+    Repeat until R1 = 0x00 (card ready):
+      a) CMD55:  0x77 0x00 0x00 0x00 0x00 0x65
+         Expected: R1 = 0x01
+      b) ACMD41: 0x69 0x40 0x00 0x00 0x00 0x77 (HCS=1 for SDHC)
+         Expected: R1 = 0x00 when ready
+    Timeout: ~1 second (retry up to 1000 times with small delay)
+
+Step 6: CMD58 (READ_OCR) — Check CCS bit for SDHC
+    Command:  0x7A 0x00 0x00 0x00 0x00 0xFD
+    CS:       Low
+    Expected: R3 (5 bytes). Bit 30 of OCR = CCS.
+    If CCS=1: SDHC card, sector-addressed (our read address = sector#)
+    If CCS=0: Standard card, byte-addressed (address = sector# * 512)
+
+Step 7: CMD16 (SET_BLOCKLEN) — Set block size to 512 (optional for SDHC)
+    Command:  0x50 0x00 0x00 0x02 0x00 0xXX
+    Ensures 512-byte reads regardless of card type.
+
+Clock speed during init: <= 400kHz (27MHz / 68 = ~397kHz).
+After init completes: switch to faster clock (27MHz / 4 = 6.75MHz).
+
+4. SD CARD DATA FORMAT — Raw Sector Layout
+-------------------------------------------
+We do NOT implement a filesystem (FAT32/exFAT). Instead, we store IR data
+at known sector offsets on the raw SD card. This saves ~2000+ LUTs that a
+FAT32 parser would require.
+
+Sector 0 — Header (512 bytes):
+    Offset  Size    Content
+    ------  ----    -------
+    0x000   4       Magic: 0x54 0x41 0x49 0x52 ("TAIR" = TangAmp IR)
+    0x004   2       Version: 0x0001
+    0x006   2       Number of IRs stored (uint16, little-endian)
+    0x008   2       Taps per IR: 256 (uint16, little-endian)
+    0x00A   2       Bits per tap: 16 (uint16, little-endian)
+    0x00C   2       Default IR index (uint16, little-endian)
+    0x00E   2       Reserved (0x0000)
+    0x010   32      IR slot 0 name (null-terminated ASCII, 32 chars)
+    0x030   32      IR slot 1 name (null-terminated ASCII, 32 chars)
+    0x050   32      IR slot 2 name (null-terminated ASCII, 32 chars)
+    ...             (up to 15 IR names fit in one sector)
+    0x1F0   16      Reserved / padding
+
+Sectors 1..N — IR Data (one sector per IR):
+    Each sector contains 256 x 16-bit tap values in little-endian order.
+    Byte layout: [tap0_lo, tap0_hi, tap1_lo, tap1_hi, ..., tap255_lo, tap255_hi]
+    Format: Q1.15 signed (same as existing cab_ir.hex files)
+
+    Sector 1 = IR slot 0
+    Sector 2 = IR slot 1
+    ...
+    Sector N = IR slot N-1
+
+Example with 8 IRs:
+    Sector 0: header (magic, count=8, names)
+    Sector 1: 4x12 V30 SM57
+    Sector 2: 4x12 V30 MD421
+    Sector 3: 4x12 G12H75 SM57
+    Sector 4: 4x12 G12H150 SM57
+    Sector 5: 1x12 Open Back
+    Sector 6: DJammin 001
+    Sector 7: DJammin 010
+    Sector 8: DJammin 025
+
+A Python script (sd_card_writer.py) will be needed to write hex files
+onto the SD card in this format using raw sector writes.
+
+5. LOADING FLOW
+---------------
+On FPGA power-up:
+    1. Initialize SD card via SPI (steps 1-7 above)
+    2. Read sector 0 (header), validate magic bytes
+    3. Extract number of IRs and default IR index
+    4. Read sector (default_index + 1) to get the default IR
+    5. Write 256 tap values into cabinet_fir.v tap RAM
+    6. Signal "IR loaded" — amp is ready
+
+On button press (btn_s1):
+    1. Increment IR index (wrap around at num_irs)
+    2. Read sector (new_index + 1)
+    3. Write tap values into cabinet_fir.v tap RAM
+    4. Brief LED indication of which IR is selected
+
+Timing estimate:
+    - SD init: ~100ms (worst case with retries)
+    - Read 1 sector at 6.75MHz SPI: 512 bytes * 8 bits / 6.75MHz = ~607us
+    - Total IR switch time: < 1ms (inaudible gap)
+
+6. CABINET_FIR.V MODIFICATIONS
+-------------------------------
+The current cabinet_fir.v loads taps from a hex file via $readmemh at
+synthesis time. To support runtime loading:
+
+    a) Keep $readmemh as the power-on default (fallback if no SD card)
+    b) Add a write port to the taps RAM:
+         input wire        tap_wr_en,
+         input wire [7:0]  tap_wr_addr,   // 0-255
+         input wire [15:0] tap_wr_data
+    c) When tap_wr_en is asserted, write tap_wr_data to taps[tap_wr_addr]
+    d) Loading happens between audio samples (no glitch if we gate
+       sample_en during the ~607us load window)
+
+7. BUTTON / IR SELECTION INTERFACE
+-----------------------------------
+The Tang Nano 20K has one user button (btn_s1, pin 88, active low).
+
+Simple UI:
+    - Short press: cycle to next IR
+    - LED feedback: blink LED[3..5] in binary to show IR index (0-7)
+    - After 2 seconds of no press, LEDs return to normal
+
+Future expansion:
+    - Second button via GPIO header for "previous IR"
+    - Rotary encoder on GPIO header for direct IR selection
+    - UART command interface for PC-based IR management
+
+8. RESOURCE COST ESTIMATE
+--------------------------
+Current FPGA utilization: 15,810 / 20,736 LUTs (77%), 3,594 free.
+
+    Module                  Est. LUTs   Notes
+    ----------------------  ---------   -----
+    SPI master              ~100        Shift register + clock divider
+    SD init state machine   ~150        CMD sequence + response parsing
+    Sector read logic       ~80         Byte counter + data capture
+    IR load controller      ~60         Address gen + write enable
+    Button debounce         ~30         Counter-based debouncer
+    IR index + LED driver   ~20         3-bit counter + LED mux
+    ----------------------  ---------
+    Total                   ~440 LUTs   12% of remaining headroom
+
+This is well within the 3,594 free LUTs. No additional BRAM is needed
+since we write directly into the existing cabinet_fir taps array.
+
+9. MODULE HIERARCHY
+--------------------
+    tangamp_top.v
+      +-- sd_spi_reader.v      (NEW: SPI master + SD card init + sector read)
+      +-- sd_ir_loader.v        (FUTURE: orchestrates loading, button UI)
+      +-- cabinet_fir.v         (MODIFIED: add tap write port)
+      +-- triode_engine.v
+      +-- tone_stack_iir.v
+      +-- i2s_rx.v / i2s_tx.v
+      +-- clk_audio_gen.v
+
+10. SD CARD PREPARATION (Host-Side)
+------------------------------------
+To write IR data to an SD card from the host PC:
+
+    python sd_card_writer.py --device /dev/sdX \
+        --ir data/cab_ir_4x12_V30_SM57.hex "4x12 V30 SM57" \
+        --ir data/cab_ir_4x12_V30_MD421.hex "4x12 V30 MD421" \
+        --ir data/cab_ir_4x12_G12H75_SM57.hex "4x12 G12H75 SM57" \
+        --default 0
+
+This writes the header sector and IR data sectors to raw sectors at
+the start of the card. WARNING: this overwrites any filesystem.
+
+For safer operation, a future version could use a dedicated small
+partition, but raw sector access keeps the FPGA logic minimal.
+
+11. REFERENCES
+--------------
+- Tang Nano 20K Schematic v1.3:
+  https://iot-kmutnb.github.io/blogs/fpga/tang_nano_boards/tang_nano_20k_schematic_v1.3.pdf
+- SD Physical Layer Simplified Spec v2.00 (SPI mode):
+  https://users.ece.utexas.edu/~valvano/EE345M/SD_Physical_Layer_Spec.pdf
+- elm-chan SD/MMC reference:
+  https://elm-chan.org/docs/mmc/mmc_e.html
+- NESTang sd_reader.sv (working Tang Nano 20K SD reference):
+  https://github.com/sipeed/TangNano-20K-example/blob/main/nestang/src/sd_reader.sv
+- ZipCPU SDSPI (silicon-proven Verilog SD controller):
+  https://github.com/ZipCPU/sdspi
+- tang-nano-20k--riscv--cache-sdram (confirmed pin assignments):
+  https://github.com/calint/tang-nano-20k--riscv--cache-sdram
