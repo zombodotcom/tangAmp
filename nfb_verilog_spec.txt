@@ -1,0 +1,119 @@
+===============================================================================
+Negative Feedback Loop -- Verilog Implementation Specification
+===============================================================================
+
+Overview
+--------
+Global negative feedback (NFB) takes a fraction of the output transformer
+secondary voltage and feeds it back to the cathode of a preamp stage (or
+subtracts it from the input). This is a single feedback register with
+minimal resource cost.
+
+Real amps: Fender uses heavy NFB (~6dB loop gain), Marshall uses moderate
+NFB (~3dB), Vox AC30 uses none.
+
+
+Signal Flow
+-----------
+                                    NFB path (1-sample delay)
+    +------+     +--------+     +------+     +-----+     +-------+
+    | Input |---->| Preamp |---->| Tone |---->| Pow |---->| Cab   |--+---> Out
+    +------+     +--------+     +------+     +-----+     +-------+  |
+        ^                                                           |
+        |                                                           |
+        +------- (-) <---- [z^-1] <---- [* NFB_COEFF] <------------+
+
+
+Verilog Implementation
+----------------------
+Total cost: 1 multiply + 1 subtract + 1 register = 2 clock cycles
+
+1. Feedback register (captures cabinet/transformer output from previous sample):
+
+    reg signed [31:0] nfb_reg;       // Q16.16 feedback signal
+    wire signed [31:0] nfb_scaled;   // scaled feedback
+
+2. NFB coefficient (Q16.16 fixed point):
+   - NFB_COEFF = 0.0  -> 32'h0000_0000  (Vox, no feedback)
+   - NFB_COEFF = 0.1  -> 32'h0000_1999  (Marshall, moderate)
+   - NFB_COEFF = 0.3  -> 32'h0000_4CCC  (Fender, heavy)
+
+   For FPGA efficiency, use power-of-2 approximations:
+   - 0.0    = 0                    (no feedback)
+   - 0.0625 = cab_out >>> 4        (light, ~Vox with a touch)
+   - 0.125  = cab_out >>> 3        (moderate, ~Marshall)
+   - 0.25   = cab_out >>> 2        (heavy, ~Fender)
+   - 0.5    = cab_out >>> 1        (extreme, not typical)
+
+   Using shifts instead of multiplies saves DSP blocks.
+
+3. Feedback computation (runs once per audio sample, after cab output ready):
+
+    // Option A: Full multiplier (uses 1 DSP block)
+    wire signed [63:0] nfb_product = cab_out * NFB_COEFF;
+    assign nfb_scaled = nfb_product[47:16];  // Q16.16 result
+
+    // Option B: Shift-only (no DSP, just routing)
+    assign nfb_scaled = cab_out >>> NFB_SHIFT;  // NFB_SHIFT = 2,3,4
+
+4. Feedback subtraction (at input, before triode engine):
+
+    wire signed [31:0] stage_input = audio_in - nfb_reg;
+
+5. Register update (1 sample delay, updates at end of pipeline):
+
+    always @(posedge clk) begin
+        if (sample_valid) begin
+            nfb_reg <= nfb_scaled;
+        end
+    end
+
+
+Pipeline Integration
+--------------------
+The NFB loop fits naturally into the existing pipeline:
+
+  Clock 0:     Latch audio_in from I2S RX
+  Clock 1:     stage_input = audio_in - nfb_reg     <-- NFB subtraction
+  Clock 2-12:  Triode WDF pipeline (11 states)
+  Clock 13-18: Tone stack IIR
+  Clock 19-29: Power amp WDF pipeline
+  Clock 30+:   Cabinet FIR convolution
+  Clock N:     nfb_reg <= cab_out * NFB_COEFF        <-- NFB capture
+  Clock N+1:   Output to I2S TX
+
+The 1-sample delay is inherent: nfb_reg holds the PREVIOUS sample's output.
+At 48kHz, 1 sample = 20.8us, which is negligible compared to speaker/room
+acoustics (speed of sound: ~0.3m in 20us).
+
+
+Resource Cost
+-------------
+  - Registers: 1x 32-bit (nfb_reg)
+  - Logic: 1x 32-bit subtractor (stage_input = audio_in - nfb_reg)
+  - DSP: 0 (if using shift) or 1 (if using multiplier for fine control)
+  - BRAM: 0
+  - Total: ~32 LUTs + 32 FFs = negligible on GW2A (~20K LUTs available)
+
+
+User Control
+------------
+NFB amount can be made runtime-configurable:
+  - 2-bit selector: {none, light, moderate, heavy} maps to {0, >>>4, >>>3, >>>2}
+  - Exposed as a knob in the UI: "Feedback" or "Presence" (some amps label
+    the NFB control as "Presence" since reducing NFB boosts upper harmonics)
+  - On the Tang Nano 20K: could use one of the DIP switches or a button
+
+
+Notes on Stability
+------------------
+- NFB amount > 0.5 can cause oscillation in the real circuit (Barkhausen).
+  In the digital domain with 1-sample delay, the system is always stable
+  as long as |NFB_COEFF * loop_gain| < 1. With typical loop gains of 2-5x,
+  NFB_COEFF up to 0.3 is safe. Clamp to 0.5 max.
+- The 1-sample delay at 48kHz adds 20.8us of phase shift. At 20kHz this is
+  only 150 degrees -- still well within stability margin for NFB < 0.3.
+- If using higher sample rates (96kHz), the delay halves and stability
+  margin improves further.
+
+===============================================================================
