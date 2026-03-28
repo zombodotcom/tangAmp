@@ -1,0 +1,259 @@
+===============================================================================
+Presence & Resonance Controls -- Verilog Implementation Specification
+===============================================================================
+
+Overview
+--------
+Presence and resonance are frequency-shaping controls in the negative feedback
+(NFB) loop of the power amplifier. They modify the frequency content of the
+feedback signal BEFORE it is subtracted from the input, creating frequency-
+dependent negative feedback:
+
+  - Presence: High-shelf ATTENUATION of the feedback signal at ~4kHz.
+    Less high-frequency feedback -> more treble in output.
+    Found on Fender, Marshall, Mesa amps.
+
+  - Resonance: Low-shelf ATTENUATION of the feedback signal at ~90Hz.
+    Less low-frequency feedback -> more bass in output.
+    Found on Mesa Rectifiers, Peavey 5150, some Marshalls.
+
+These are distinct from the tone stack -- they shape the power amp's response
+via feedback, which also changes distortion character and dynamic feel.
+
+
+Signal Flow
+-----------
+                                    NFB path with shaping
+    +------+   +--------+   +------+   +-----+   +-------+
+    | Input |-->| Preamp |-->| Tone |-->| Pow |-->| Cab   |--+---> Out
+    +------+   +--------+   +------+   +-----+   +-------+  |
+        ^                                                    |
+        |           +----------+    +----------+             |
+        +-- (-) <-- | Presence | <- | Resonance| <- [z^-1] <+
+                    | Hi-shelf |    | Lo-shelf |    [*NFB]
+                    +----------+    +----------+
+
+
+Filter Design (1st-order shelf, bilinear transform)
+----------------------------------------------------
+Each control is a 1st-order IIR shelf filter. At minimum settings (knob=0),
+the filter is unity gain (bypass). At maximum (knob=10), the shelf provides
+up to -10dB attenuation of the feedback signal at the target frequency,
+which produces up to +10dB boost in the output.
+
+Presence (high-shelf at 4kHz):
+  H(s) = (s + A*wc) / (s + wc)    where A = 10^(gain_dB/20)
+
+  Bilinear transform with pre-warping:
+    wd = 2*fs * tan(wc / (2*fs))
+
+    b0 = 2*fs + A*wd
+    b1 = A*wd - 2*fs
+    a0 = 2*fs + wd
+    a1 = wd - 2*fs
+
+  Normalize: b0/=a0, b1/=a0, a1/=a0
+
+  Difference equation:
+    y[n] = b0*x[n] + b1*x[n-1] - a1*y[n-1]
+
+Resonance (low-shelf at 90Hz):
+  H(s) = (A*s + wc) / (s + wc)
+
+    b0 = A*2*fs + wd
+    b1 = wd - A*2*fs
+    a0 = 2*fs + wd
+    a1 = wd - 2*fs
+
+
+Q16.16 Fixed-Point Coefficients
+---------------------------------
+Precomputed for fs=48kHz:
+
+Presence (fc=4000Hz, high-shelf):
+  Knob  gain_dB    b0 (Q16.16)   b1 (Q16.16)   a1 (Q16.16)
+  ----  -------    -----------   -----------   -----------
+   0     0.0dB    0x00010000    0xFFFF0000    0xFFFF4B06
+   2    -2.0dB    0x0000ED48    0xFFFF0D1C    0xFFFF4B06
+   5    -5.0dB    0x0000D03C    0xFFFF2628    0xFFFF4B06
+   7    -7.0dB    0x0000BF5E    0xFFFF372A    0xFFFF4B06
+  10   -10.0dB    0x0000A4BE    0xFFFF519E    0xFFFF4B06
+
+  Note: a1 does not change with gain (only the numerator changes).
+
+Resonance (fc=90Hz, low-shelf):
+  Knob  gain_dB    b0 (Q16.16)   b1 (Q16.16)   a1 (Q16.16)
+  ----  -------    -----------   -----------   -----------
+   0     0.0dB    0x00010000    0xFFFF0000    0xFFFEFFB6
+   2    -2.0dB    0x0000FFC8    0xFFFEFFDE    0xFFFEFFB6
+   5    -5.0dB    0x0000FF68    0xFFFEFFDE    0xFFFEFFB6
+   7    -7.0dB    0x0000FF20    0xFFFEFFDE    0xFFFEFFB6
+  10   -10.0dB    0x0000FEB4    0xFFFEFFDE    0xFFFEFFB6
+
+  Note: Low-shelf coefficients change very little because 90Hz << fs/2.
+  The difference is subtle in the coefficients but audible in the loop.
+
+  For a more dramatic resonance effect, the shelf frequency can be raised
+  to 120-150Hz, or a 2nd-order filter (biquad) can be used instead.
+
+
+Verilog Module
+--------------
+Each filter is a 1st-order IIR: 1 multiply-accumulate per coefficient,
+3 MACs total per filter, 2 filters = 6 MACs.
+
+```verilog
+module nfb_shelf_filter #(
+    parameter signed [31:0] B0 = 32'sh00010000,  // Q16.16
+    parameter signed [31:0] B1 = 32'shFFFF0000,  // Q16.16
+    parameter signed [31:0] A1 = 32'shFFFF4B06   // Q16.16
+)(
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        sample_valid,
+    input  wire signed [31:0] x_in,    // Q16.16 input
+    output reg  signed [31:0] y_out,   // Q16.16 output
+    output reg         valid_out
+);
+
+    reg signed [31:0] x_prev;
+    reg signed [31:0] y_prev;
+    reg signed [63:0] acc;
+
+    localparam IDLE = 0, MUL1 = 1, MUL2 = 2, MUL3 = 3, DONE = 4;
+    reg [2:0] state;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            x_prev <= 0;
+            y_prev <= 0;
+            y_out  <= 0;
+            state  <= IDLE;
+            valid_out <= 0;
+        end else begin
+            valid_out <= 0;
+            case (state)
+                IDLE: begin
+                    if (sample_valid) begin
+                        acc   <= B0 * x_in;           // b0 * x[n]
+                        state <= MUL1;
+                    end
+                end
+                MUL1: begin
+                    acc   <= acc + (B1 * x_prev);     // + b1 * x[n-1]
+                    state <= MUL2;
+                end
+                MUL2: begin
+                    acc   <= acc - (A1 * y_prev);     // - a1 * y[n-1]
+                    state <= MUL3;
+                end
+                MUL3: begin
+                    y_out     <= acc[47:16];          // Q16.16 extraction
+                    y_prev    <= acc[47:16];
+                    x_prev    <= x_in;
+                    valid_out <= 1;
+                    state     <= DONE;
+                end
+                DONE: begin
+                    state <= IDLE;
+                end
+            endcase
+        end
+    end
+endmodule
+```
+
+
+Integration with NFB Path
+--------------------------
+The two shelf filters are cascaded in the NFB path between the cabinet
+output and the feedback subtraction point:
+
+  cab_out -> [z^-1] -> [* NFB_COEFF] -> [resonance_filter] ->
+             [presence_filter] -> nfb_shaped -> subtract from input
+
+In the pipeline:
+  Clock N:     cab_out ready, latch into nfb_reg
+  Clock N+1:   nfb_scaled = nfb_reg * NFB_COEFF (or >>> shift)
+  Clock N+2..5: resonance low-shelf IIR (4 clocks)
+  Clock N+6..9: presence high-shelf IIR (4 clocks)
+  Clock N+10:  nfb_shaped ready, stored for next sample's subtraction
+
+Total added latency: 8 clock cycles (still well within the 562 clocks/sample
+budget at 27MHz/48kHz).
+
+
+Runtime Control
+----------------
+Knob values (0-10) can be mapped to coefficient sets stored in small ROMs:
+
+  - 11 entries x 3 coefficients x 32 bits = 132 bytes per filter
+  - Two filters = 264 bytes total
+  - Fits easily in distributed RAM (no BRAM needed)
+
+Alternatively, for power-of-2 approximations:
+  - Presence knob 0-3: select from 4 precomputed coefficient sets
+  - Use DIP switches or SPI register from the UI
+
+On the Tang Nano 20K: presence and resonance can share a single knob pair
+exposed via the web UI (SPI -> FPGA registers), or use 2 of the 6 DIP
+switches for coarse 4-level control of each.
+
+
+Resource Cost
+--------------
+Per shelf filter instance:
+  - 2x 32-bit registers (x_prev, y_prev)
+  - 1x 64-bit accumulator
+  - Reuses existing 32x32 multiplier (time-shared)
+  - 4 clock cycles
+
+Two filters (presence + resonance):
+  - 4x 32-bit registers + 2x 64-bit accumulators
+  - 8 clock cycles total
+  - ~64 LUTs + 64 FFs = negligible on GW2A
+
+Optional coefficient ROM:
+  - 264 bytes distributed RAM (or hardcoded parameters for fixed settings)
+
+
+Bypass Optimization
+--------------------
+When a knob is at 0 (no effect), the corresponding filter can be bypassed
+entirely to save 4 clock cycles:
+
+```verilog
+wire bypass_presence = (PRESENCE_KNOB == 0);
+wire bypass_resonance = (RESONANCE_KNOB == 0);
+
+// Mux around each filter
+assign pres_in = bypass_resonance ? nfb_scaled : resonance_out;
+assign nfb_shaped = bypass_presence ? pres_in : presence_out;
+```
+
+This costs only 2 muxes (2 LUTs) and allows the pipeline to skip unused
+filter stages.
+
+
+Notes
+------
+1. The presence control on real amps is often just a capacitor (e.g., 100pF)
+   across the NFB resistor. This creates a natural high-shelf because at
+   high frequencies the cap shorts out the resistor, reducing feedback.
+   Our 1st-order shelf filter accurately models this behavior.
+
+2. The resonance control is less common on vintage amps but standard on
+   modern high-gain designs (Mesa, Peavey, Diezel). It typically uses an
+   RC network that reduces low-frequency feedback.
+
+3. Both controls interact with the base NFB amount: with very low NFB
+   (e.g., Vox at 0.0), presence/resonance have no effect since there's
+   no feedback to shape. They are most effective with moderate-to-heavy
+   NFB (0.1-0.3).
+
+4. For a more accurate model, a 2nd-order biquad (5 MACs per filter)
+   could be used for steeper shelf transitions. This would cost 10 extra
+   clock cycles but would better match the resonant peak that some amps
+   exhibit at the resonance frequency.
+
+===============================================================================
