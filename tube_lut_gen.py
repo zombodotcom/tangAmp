@@ -14,11 +14,21 @@ import matplotlib.pyplot as plt
 import os
 
 # ─── Tube Parameters ──────────────────────────────────────────────────────────
-# Common preamp tubes — swap these to change amp character
+# Common preamp and power tubes — swap these to change amp character
+# Old constants (pre-fit, for reference):
+#   "12AX7": dict(mu=100.0, ex=1.4,  kg1=1060.0, kp=600.0, kvb=300.0),
+#   "12AU7": dict(mu=21.5,  ex=1.35, kg1=1180.0, kp=84.0,  kvb=300.0),
+#   "6SL7":  dict(mu=70.0,  ex=1.4,  kg1=1060.0, kp=600.0, kvb=300.0),
+# New constants fitted to RCA datasheet data (fit_tube_model.py) and paengdesign/miko fits:
 TUBES = {
-    "12AX7": dict(mu=100.0, ex=1.4,  kg1=1060.0, kp=600.0, kvb=300.0),
-    "12AU7": dict(mu=21.5,  ex=1.35, kg1=1180.0, kp=84.0,  kvb=300.0),
-    "6SL7":  dict(mu=70.0,  ex=1.4,  kg1=1060.0, kp=600.0, kvb=300.0),
+    # Preamp tubes
+    "12AX7": dict(mu=92.08,  ex=1.29, kg1=1304.71, kp=561.08, kvb=15101.91),  # fitted to RCA data
+    "12AU7": dict(mu=27.48,  ex=1.03, kg1=466.13,  kp=135.10, kvb=24224.55),  # fitted to RCA data
+    "6SL7":  dict(mu=90.41,  ex=1.25, kg1=597.32,  kp=511.97, kvb=6747.79),   # paengdesign miko fit
+    # Power tubes (triode-connected)
+    "EL34":  dict(mu=10.98,  ex=1.42, kg1=249.65,  kp=43.2,   kvb=333.0),     # paengdesign
+    "6L6":   dict(mu=10.11,  ex=1.37, kg1=406.6,   kp=31.2,   kvb=640.7),     # paengdesign
+    "300B":  dict(mu=3.95,   ex=1.4,  kg1=1550.0,  kp=65.0,   kvb=300.0),     # paengdesign
 }
 
 TUBE = "12AX7"
