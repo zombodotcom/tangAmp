@@ -23,7 +23,7 @@ module wdf_triode_wdf #(
     parameter LUT_SIZE = 256,
     parameter IP_SCALE = 10000,
     parameter DIP_SCALE = 100000,
-    parameter DIP_VPK_SCALE = 100000,
+    parameter DIP_VPK_SCALE = 10000000,
     parameter integer VPK_MIN_MV = 0,
     parameter integer VPK_MAX_MV = 300000,
     parameter integer VGK_MIN_MV = -4000,

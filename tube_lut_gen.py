@@ -22,7 +22,7 @@ import os
 # New constants fitted to RCA datasheet data (fit_tube_model.py) and paengdesign/miko fits:
 TUBES = {
     # Preamp tubes
-    "12AX7": dict(mu=92.08,  ex=1.29, kg1=1304.71, kp=561.08, kvb=15101.91),  # fitted to RCA data
+    "12AX7": dict(mu=100.0,  ex=1.4, kg1=1060.0, kp=600.0, kvb=300.0),  # Koren original (fitted values in fit_tube_model.py)
     "12AU7": dict(mu=27.48,  ex=1.03, kg1=466.13,  kp=135.10, kvb=24224.55),  # fitted to RCA data
     "6SL7":  dict(mu=90.41,  ex=1.25, kg1=597.32,  kp=511.97, kvb=6747.79),   # paengdesign miko fit
     # Power tubes (triode-connected)
@@ -48,7 +48,7 @@ LUT_SIZE = 256     # entries per axis — 256x256 = 64K entries total
 # Scale factor maps physical amps to integer range
 IP_SCALE       = 1e4   # 1 unit = 0.1mA  (max ~20mA covers most triodes)
 DIP_SCALE      = 1e5   # derivative scale (dIp/dVgk)
-DIP_VPK_SCALE  = 1e5   # derivative scale (dIp/dVpk)
+DIP_VPK_SCALE  = 1e7   # derivative scale (dIp/dVpk) — needs high scale, dIp/dVpk is ~1e-5
 
 # ─── Koren Triode Model ───────────────────────────────────────────────────────
 def koren_ip(Vpk, Vgk, mu, ex, kg1, kp, kvb):
