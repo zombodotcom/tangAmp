@@ -14,9 +14,16 @@ sample using Newton-Raphson iteration.
 """
 
 import numpy as np
+import math
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+try:
+    import numba
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Circuit Parameters
@@ -27,7 +34,16 @@ RP  = 100000.0   # Plate resistor (ohms)
 RG  = 1000000.0  # Grid resistor (ohms)
 RK  = 1500.0     # Cathode resistor (ohms)
 CIN = 22e-9      # Input coupling cap (F) — 22nF
+CK  = 22e-6      # Cathode bypass cap (F) — 22uF
 FS  = 48000.0    # Sample rate (Hz)
+
+# Cathode bypass cap WDF parameters
+R_CK = 1.0 / (2.0 * FS * CK)  # ~0.4735 ohm
+G_rk = 1.0 / RK
+G_ck = 1.0 / R_CK
+G_total = G_rk + G_ck
+R_CATH = 1.0 / G_total          # port resistance seen by root
+GAMMA_CATH = G_rk / G_total     # scattering coefficient
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Koren 12AX7 Triode Model
@@ -68,6 +84,97 @@ print(f"=== Coupling Cap High-Pass ===")
 print(f"tau = {tau*1000:.1f} ms, f_c = {1/(2*np.pi*tau):.1f} Hz, c = {c_hp:.6f}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Numba JIT-compiled simulation loop
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if HAS_NUMBA:
+    @numba.jit(nopython=True)
+    def _koren_ip_jit(vpk, vgk, MU, EX, KG1, KP, KVB):
+        vpk = min(max(vpk, 0.0), 500.0)
+        vgk = min(max(vgk, -10.0), 1.0)
+        if vpk <= 0.0:
+            return 0.0
+        inner = KP * (1.0 / MU + vgk / math.sqrt(KVB + vpk * vpk))
+        inner = min(max(inner, -500.0), 500.0)
+        Ed = (vpk / KP) * math.log(1.0 + math.exp(inner))
+        if Ed <= 0.0:
+            return 0.0
+        return (Ed ** EX) / KG1
+
+    @numba.jit(nopython=True)
+    def _simulate_nr_jit(audio_in, n_total, VB, RP, RG, RK, R_k_port,
+                         gamma_cath, c_hp, hp_gain, ip_dc, MU, EX, KG1, KP, KVB):
+        out_vp = np.zeros(n_total)
+        out_vg = np.zeros(n_total)
+        out_ip = np.zeros(n_total)
+
+        hp_y = 0.0
+        hp_x_prev = 0.0
+        ip_prev = ip_dc
+        z_ck = 0.0  # capacitor state for Ck
+
+        for n in range(n_total):
+            vin = audio_in[n]
+
+            # Coupling cap high-pass
+            hp_y = c_hp * hp_y + hp_gain * (vin - hp_x_prev)
+            hp_x_prev = vin
+            v_grid = hp_y
+
+            # Cathode: parallel adaptor Rk || Ck (upward pass)
+            b_rk = 0.0
+            b_ck = z_ck
+            bDiff = b_ck - b_rk
+            b_cathode = b_ck - gamma_cath * bDiff
+
+            # WDF root: Newton-Raphson
+            a_p = VB
+            a_g = v_grid
+            a_k = b_cathode
+            R_p = RP
+            R_k = R_k_port
+
+            ip = ip_prev
+            for _ in range(20):
+                vpk = (a_p - a_k) - (R_p + R_k) * ip
+                vgk = a_g - a_k - R_k * ip
+
+                ip_model = _koren_ip_jit(vpk, vgk, MU, EX, KG1, KP, KVB)
+                f = ip - ip_model
+
+                if abs(f) < 1e-10:
+                    break
+
+                h = 0.01
+                dip_dvpk = (_koren_ip_jit(vpk + h, vgk, MU, EX, KG1, KP, KVB) -
+                            _koren_ip_jit(vpk - h, vgk, MU, EX, KG1, KP, KVB)) / (2.0 * h)
+                dip_dvgk = (_koren_ip_jit(vpk, vgk + h, MU, EX, KG1, KP, KVB) -
+                            _koren_ip_jit(vpk, vgk - h, MU, EX, KG1, KP, KVB)) / (2.0 * h)
+                fp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+
+                if abs(fp) < 1e-15:
+                    break
+
+                ip -= f / fp
+                ip = max(ip, 0.0)
+
+            ip_prev = ip
+
+            b_p = a_p - 2.0 * R_p * ip
+            b_k = a_k + 2.0 * R_k * ip
+            vp = (a_p + b_p) / 2.0
+
+            # Downward pass: update capacitor state
+            a_ck = b_k + b_cathode - b_ck
+            z_ck = a_ck
+
+            out_vp[n] = vp
+            out_vg[n] = v_grid
+            out_ip[n] = ip
+
+        return out_vp, out_vg, out_ip
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Find DC Operating Point
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -94,10 +201,19 @@ ip_dc, vp_dc, vk_dc = find_dc_op()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def simulate(audio_in, n_samples):
+    if HAS_NUMBA:
+        print("  [Using Numba JIT]")
+        out_vp, out_vg, out_ip = _simulate_nr_jit(
+            audio_in, n_samples, VB, RP, RG, RK, R_CATH, GAMMA_CATH,
+            c_hp, hp_gain, ip_dc, MU, EX, KG1, KP, KVB)
+        out = out_vp - vp_dc
+        return out, out_vp, out_vg, out_ip
+
     # State
     hp_y = 0.0      # high-pass filter output (grid voltage)
     hp_x_prev = 0.0 # previous input to filter
     ip_prev = ip_dc # previous plate current (for initial guess)
+    z_ck = 0.0      # capacitor state for Ck
 
     # Output arrays
     out = np.zeros(n_samples)
@@ -108,54 +224,60 @@ def simulate(audio_in, n_samples):
     for n in range(n_samples):
         vin = audio_in[n] if n < len(audio_in) else 0.0
 
-        # ── Coupling cap high-pass: Vin → V_grid ─────────────────────────
+        # Coupling cap high-pass: Vin -> V_grid
         hp_y = c_hp * hp_y + hp_gain * (vin - hp_x_prev)
         hp_x_prev = vin
         v_grid = hp_y
 
-        # ── Solve for operating point: Newton-Raphson ─────────────────────
-        # System: Ip = koren_ip(VB - (RP+RK)*Ip, V_grid - RK*Ip)
-        # Rewrite as: f(Ip) = Ip - koren_ip(VB-(RP+RK)*Ip, V_grid-RK*Ip) = 0
-        # Newton: Ip_new = Ip - f/f'
-        # f' = 1 - d(koren)/d(Ip)
-        # d(koren)/d(Ip) = dIp/dVpk * (-(RP+RK)) + dIp/dVgk * (-RK)
+        # Cathode: parallel adaptor Rk || Ck (upward pass)
+        b_rk = 0.0
+        b_ck = z_ck
+        bDiff = b_ck - b_rk
+        b_cathode = b_ck - GAMMA_CATH * bDiff
 
-        ip = ip_prev  # initial guess from last sample
-        for _ in range(5):
-            vpk = VB - (RP + RK) * ip
-            vgk = v_grid - RK * ip
+        # WDF root: Newton-Raphson
+        a_p = VB
+        a_g = v_grid
+        a_k = b_cathode
+        R_p = RP
+        R_k = R_CATH
+
+        ip = ip_prev
+        for _ in range(20):
+            vpk = (a_p - a_k) - (R_p + R_k) * ip
+            vgk = a_g - a_k - R_k * ip
 
             ip_model = koren_ip(vpk, vgk)
             f = ip - ip_model
 
-            if abs(f) < 1e-9:
+            if abs(f) < 1e-10:
                 break
 
-            # Numerical Jacobian
-            h = max(abs(ip) * 1e-6, 1e-9)
-            vpk_p = VB - (RP + RK) * (ip + h)
-            vgk_p = v_grid - RK * (ip + h)
-            ip_model_p = koren_ip(vpk_p, vgk_p)
-            fp = 1.0 - (ip_model_p - ip_model) / h
+            h = 0.01
+            dip_dvpk = (koren_ip(vpk + h, vgk) - koren_ip(vpk - h, vgk)) / (2.0 * h)
+            dip_dvgk = (koren_ip(vpk, vgk + h) - koren_ip(vpk, vgk - h)) / (2.0 * h)
+            fp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
 
             if abs(fp) < 1e-15:
                 break
 
             ip -= f / fp
-            ip = max(ip, 0.0)  # current can't be negative
+            ip = max(ip, 0.0)
 
-        # Final values
-        vpk = VB - (RP + RK) * ip
-        vgk = v_grid - RK * ip
-        vk = RK * ip
-        vp = VB - RP * ip
         ip_prev = ip
 
-        # Store
+        b_p = a_p - 2.0 * R_p * ip
+        b_k = a_k + 2.0 * R_k * ip
+        vp = (a_p + b_p) / 2.0
+
+        # Downward pass: update capacitor state
+        a_ck = b_k + b_cathode - b_ck
+        z_ck = a_ck
+
         out_vp[n] = vp
         out_vg[n] = v_grid
         out_ip[n] = ip
-        out[n] = vp - vp_dc  # AC-coupled: subtract DC operating point
+        out[n] = vp - vp_dc
 
     return out, out_vp, out_vg, out_ip
 
@@ -180,10 +302,13 @@ audio_out, vplate, vgrid, ip_out = simulate(audio_in, n_total)
 
 print(f"\n=== DC Settling (last 100 before audio) ===")
 sl = slice(n_settle-100, n_settle)
-print(f"V_plate: {vplate[sl].mean():.2f}V (stable={vplate[sl].std():.4f}V)")
+vp_dc_measured = vplate[sl].mean()
+print(f"V_plate: {vp_dc_measured:.2f}V (stable={vplate[sl].std():.4f}V)")
 print(f"V_grid:  {vgrid[sl].mean():.6f}V")
 print(f"Ip:      {ip_out[sl].mean()*1000:.3f}mA")
 
+# Re-compute AC output using measured DC (more accurate with bypass cap)
+audio_out = vplate - vp_dc_measured
 ap = audio_out[n_settle:]
 inp = audio_in[n_settle:]
 in_rms = np.sqrt(np.mean(inp**2))

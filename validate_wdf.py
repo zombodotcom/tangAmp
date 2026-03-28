@@ -12,6 +12,7 @@ import numpy as np
 
 SCALE = 65536.0
 SETTLE_SAMPLES = 2000
+VERILOG_SETTLE_SAMPLES = 10000
 
 WDF_NR_FILE      = "wdf_sim_output.txt"       # Newton-Raphson reference
 WDF_WDF_FILE     = "wdf_sim_wdf_output.txt"   # WDF reference
@@ -136,7 +137,7 @@ def main():
     if os.path.exists(WDF_VERILOG_FILE):
         print(f"Loading Verilog WDF output: {WDF_VERILOG_FILE}")
         vlog_inputs, vlog_outputs = load_file(WDF_VERILOG_FILE)
-        vlog_settled = vlog_outputs[SETTLE_SAMPLES:]
+        vlog_settled = vlog_outputs[VERILOG_SETTLE_SAMPLES:]
         print(f"  Total samples: {len(vlog_outputs)}, settled: {len(vlog_settled)}")
         print()
 

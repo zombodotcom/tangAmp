@@ -22,15 +22,21 @@ Grid leaf: Resistor RG driven by external IIR high-pass (Cin+Rg coupling).
   R0 = RG, b = v_grid_filtered each sample.
   With Ig=0, v_grid = b_grid = v_filtered.
 
-Cathode leaf: Resistor RK to ground.
-  R0 = RK, b = 0. v_cathode = RK*Ip (self-bias).
-  (When Ck bypass cap is added later, use Parallel(Rk,Ck) adaptor here.)
+Cathode leaf: Parallel adaptor (Rk || Ck) to ground.
+  R0 = Rk||Ck, bypass cap removes AC negative feedback for higher gain.
 """
 
 import numpy as np
+import math
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+try:
+    import numba
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
 
 # =============================================================================
 # Circuit Parameters
@@ -41,8 +47,17 @@ RP  = 100000.0    # Plate resistor (ohms)
 RG  = 1000000.0   # Grid resistor (ohms)
 RK  = 1500.0      # Cathode resistor (ohms)
 CIN = 22e-9       # Input coupling cap (F) -- 22nF
-CK  = 22e-6       # Cathode bypass cap (F) -- 22uF (not used in this stage)
+CK  = 22e-6       # Cathode bypass cap (F) -- 22uF
 FS  = 48000.0     # Sample rate (Hz)
+
+# Cathode bypass cap WDF port resistance
+R_CK = 1.0 / (2.0 * FS * CK)  # ~0.4735 ohm
+# Parallel adaptor parameters for Rk || Ck
+G_rk = 1.0 / RK
+G_ck = 1.0 / R_CK
+G_total = G_rk + G_ck
+R_CATH = 1.0 / G_total          # port resistance seen by root
+GAMMA_CATH = G_rk / G_total     # scattering coefficient
 
 # =============================================================================
 # Koren 12AX7 Triode Model
@@ -84,6 +99,106 @@ print(f"=== Coupling Cap High-Pass ===")
 print(f"tau = {tau_hp*1000:.1f} ms, f_c = {1/(2*np.pi*tau_hp):.1f} Hz, c = {c_hp:.6f}")
 
 # =============================================================================
+# Numba JIT-compiled simulation loop
+# =============================================================================
+
+if HAS_NUMBA:
+    @numba.jit(nopython=True)
+    def _koren_ip_jit(vpk, vgk, MU, EX, KG1, KP, KVB):
+        vpk = min(max(vpk, 0.0), 500.0)
+        vgk = min(max(vgk, -10.0), 1.0)
+        if vpk <= 0.0:
+            return 0.0
+        inner = KP * (1.0 / MU + vgk / math.sqrt(KVB + vpk * vpk))
+        inner = min(max(inner, -500.0), 500.0)
+        Ed = (vpk / KP) * math.log(1.0 + math.exp(inner))
+        if Ed <= 0.0:
+            return 0.0
+        return (Ed ** EX) / KG1
+
+    @numba.jit(nopython=True)
+    def _simulate_wdf_jit(audio_in, n_total, VB, RP, RG, R_k_port,
+                          gamma_cath, c_hp, hp_gain, MU, EX, KG1, KP, KVB):
+        out_vplate = np.zeros(n_total)
+        out_ip = np.zeros(n_total)
+        out_vgrid = np.zeros(n_total)
+        out_vk = np.zeros(n_total)
+
+        prev_ip = 0.5e-3
+        hp_y = 0.0
+        hp_x_prev = 0.0
+        h_nr = 0.01
+        z_ck = 0.0  # capacitor state for Ck
+
+        R_p = RP
+        R_k = R_k_port
+
+        for n in range(n_total):
+            vin = audio_in[n]
+
+            # High-pass filter
+            hp_y = c_hp * hp_y + hp_gain * (vin - hp_x_prev)
+            hp_x_prev = vin
+            v_grid_filtered = hp_y
+
+            # Reflected waves from leaves
+            b_plate = VB
+            b_grid = v_grid_filtered
+            # Cathode: parallel adaptor Rk || Ck
+            b_rk = 0.0
+            b_ck = z_ck
+            bDiff = b_ck - b_rk
+            b_cathode = b_ck - gamma_cath * bDiff
+
+            a_p = b_plate
+            a_g = b_grid
+            a_k = b_cathode
+
+            # Newton-Raphson
+            Ip = prev_ip
+            for iteration in range(20):
+                Vpk = (a_p - a_k) - (R_p + R_k) * Ip
+                Vgk = a_g - a_k - R_k * Ip
+
+                ip_model = _koren_ip_jit(Vpk, Vgk, MU, EX, KG1, KP, KVB)
+                f_val = Ip - ip_model
+
+                if abs(f_val) < 1e-10:
+                    break
+
+                dip_dvpk = (_koren_ip_jit(Vpk + h_nr, Vgk, MU, EX, KG1, KP, KVB) -
+                            _koren_ip_jit(Vpk - h_nr, Vgk, MU, EX, KG1, KP, KVB)) / (2.0 * h_nr)
+                dip_dvgk = (_koren_ip_jit(Vpk, Vgk + h_nr, MU, EX, KG1, KP, KVB) -
+                            _koren_ip_jit(Vpk, Vgk - h_nr, MU, EX, KG1, KP, KVB)) / (2.0 * h_nr)
+                df_dIp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+
+                if abs(df_dIp) < 1e-15:
+                    break
+
+                Ip -= f_val / df_dIp
+                Ip = max(Ip, 0.0)
+
+            prev_ip = Ip
+
+            b_p = a_p - 2.0 * R_p * Ip
+            b_k = a_k + 2.0 * R_k * Ip
+
+            # Downward pass: update capacitor state
+            a_ck = b_k + b_cathode - b_ck
+            z_ck = a_ck
+
+            v_plate = (a_p + b_p) / 2.0
+            v_grid = (a_g + a_g) / 2.0
+            v_cathode = (a_k + b_k) / 2.0
+
+            out_vplate[n] = v_plate
+            out_vgrid[n] = v_grid
+            out_vk[n] = v_cathode
+            out_ip[n] = Ip
+
+        return out_vplate, out_ip, out_vgrid, out_vk
+
+# =============================================================================
 # WDF Elements
 # =============================================================================
 
@@ -123,15 +238,15 @@ R_plate = RP
 # R0 = RG, b = v_grid_filtered (set each sample)
 R_grid = RG
 
-# Cathode: single resistor Rk (no bypass cap, matching reference sim)
-# When Ck is added later, use Parallel(Rk, Ck) adaptor here.
+# Cathode: parallel adaptor Rk || Ck (bypass cap)
 rk_elem = Resistor(RK)
-R_cathode = rk_elem.R0
+ck_elem = Capacitor(CK, FS)
+R_cathode = R_CATH
 
 print(f"\n=== WDF Port Resistances ===")
 print(f"Plate R0:   {R_plate:.1f} ohm  (RP, Thevenin source)")
 print(f"Grid R0:    {R_grid:.1f} ohm  (RG)")
-print(f"Cathode R0: {R_cathode:.1f} ohm  (Rk)")
+print(f"Cathode R0: {R_cathode:.4f} ohm  (Rk || Ck)")
 
 # =============================================================================
 # Simulation
@@ -152,108 +267,106 @@ out_ip     = np.zeros(n_total)
 
 print(f"\nSimulating {n_total} samples...")
 
-prev_ip = 0.5e-3
+if HAS_NUMBA:
+    print("  [Using Numba JIT]")
+    out_vplate, out_ip, out_vgrid, out_vk = _simulate_wdf_jit(
+        audio_in, n_total, VB, RP, RG, R_CATH, GAMMA_CATH,
+        c_hp, hp_gain, MU, EX, KG1, KP, KVB)
+    # Print a few samples for consistency
+    for n in [0, 1, 2, 3, 4] + list(range(0, n_total, 500)):
+        if n < n_total:
+            print(f"  [{n:5d}] Vp={out_vplate[n]:.2f}V  Vg={out_vgrid[n]:.4f}V  "
+                  f"Vk={out_vk[n]:.3f}V  Ip={out_ip[n]*1000:.4f}mA  vin={audio_in[n]:.4f}")
+else:
+    prev_ip = 0.5e-3
 
-# High-pass filter state
-hp_y = 0.0
-hp_x_prev = 0.0
+    # High-pass filter state
+    hp_y = 0.0
+    hp_x_prev = 0.0
+    z_ck = 0.0  # capacitor state for Ck
 
-for n in range(n_total):
-    vin = audio_in[n]
+    for n in range(n_total):
+        vin = audio_in[n]
 
-    # === Input coupling: IIR high-pass filter ===
-    hp_y = c_hp * hp_y + hp_gain * (vin - hp_x_prev)
-    hp_x_prev = vin
-    v_grid_filtered = hp_y
+        # === Input coupling: IIR high-pass filter ===
+        hp_y = c_hp * hp_y + hp_gain * (vin - hp_x_prev)
+        hp_x_prev = vin
+        v_grid_filtered = hp_y
 
-    # =================================================================
-    # UPWARD PASS: compute reflected waves from leaves
-    # =================================================================
+        # =================================================================
+        # UPWARD PASS: compute reflected waves from leaves
+        # =================================================================
 
-    # Plate leaf: b = VB (Thevenin source, constant reflected wave)
-    b_plate = VB
+        # Plate leaf: b = VB (Thevenin source, constant reflected wave)
+        b_plate = VB
 
-    # Grid leaf: b = v_grid_filtered
-    b_grid = v_grid_filtered
+        # Grid leaf: b = v_grid_filtered
+        b_grid = v_grid_filtered
 
-    # Cathode: single resistor leaf
-    rk_elem.reflect()    # b = 0
-    b_cathode = rk_elem.b
+        # Cathode: parallel adaptor Rk || Ck
+        b_rk = 0.0          # resistor reflects 0
+        b_ck = z_ck         # capacitor reflects state
+        bDiff = b_ck - b_rk
+        b_cathode = b_ck - GAMMA_CATH * bDiff
 
-    # =================================================================
-    # ROOT: Solve triode nonlinearity
-    # =================================================================
-    # Incident waves to root from each subtree:
-    a_p = b_plate      # plate (single leaf, direct)
-    a_g = b_grid       # grid (single leaf, direct)
-    a_k = b_cathode    # cathode (parallel adaptor, direct polarity)
+        # =================================================================
+        # ROOT: Solve triode nonlinearity
+        # =================================================================
+        a_p = b_plate
+        a_g = b_grid
+        a_k = b_cathode
 
-    R_p = R_plate
-    R_g = R_grid
-    R_k = R_cathode
+        R_p = R_plate
+        R_g = R_grid
+        R_k = R_cathode
 
-    # Newton-Raphson: Ip = koren(Vpk, Vgk)
-    # v_plate = (a_p + b_p)/2 where b_p = a_p - 2*R_p*Ip
-    #   => v_plate = a_p - R_p*Ip
-    # v_cathode = (a_k + b_k)/2 where b_k = a_k + 2*R_k*Ip
-    #   => v_cathode = a_k + R_k*Ip
-    # v_grid = a_g (since Ig=0, b_g = a_g)
-    # Vpk = v_plate - v_cathode = (a_p - a_k) - (R_p + R_k)*Ip
-    # Vgk = v_grid - v_cathode = a_g - a_k - R_k*Ip
+        Ip = prev_ip
+        for iteration in range(20):
+            Vpk = (a_p - a_k) - (R_p + R_k) * Ip
+            Vgk = a_g - a_k - R_k * Ip
 
-    Ip = prev_ip
-    for iteration in range(20):
-        Vpk = (a_p - a_k) - (R_p + R_k) * Ip
-        Vgk = a_g - a_k - R_k * Ip
+            ip_model = koren_ip(Vpk, Vgk)
+            f_val = Ip - ip_model
 
-        ip_model = koren_ip(Vpk, Vgk)
-        f_val = Ip - ip_model
+            if abs(f_val) < 1e-10:
+                break
 
-        if abs(f_val) < 1e-10:
-            break
+            dip_dvpk = koren_dip_dvpk(Vpk, Vgk)
+            dip_dvgk = koren_dip_dvgk(Vpk, Vgk)
+            df_dIp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
 
-        dip_dvpk = koren_dip_dvpk(Vpk, Vgk)
-        dip_dvgk = koren_dip_dvgk(Vpk, Vgk)
-        df_dIp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+            if abs(df_dIp) < 1e-15:
+                break
 
-        if abs(df_dIp) < 1e-15:
-            break
+            Ip -= f_val / df_dIp
+            Ip = max(Ip, 0.0)
 
-        Ip -= f_val / df_dIp
-        Ip = max(Ip, 0.0)
+        prev_ip = Ip
 
-    prev_ip = Ip
+        # Reflected waves from triode back to subtrees
+        b_p = a_p - 2.0 * R_p * Ip
+        b_g = a_g
+        b_k = a_k + 2.0 * R_k * Ip
 
-    # Reflected waves from triode back to subtrees
-    b_p = a_p - 2.0 * R_p * Ip   # plate: Ip flows in, voltage drops
-    b_g = a_g                      # grid: no current
-    b_k = a_k + 2.0 * R_k * Ip   # cathode: Ip flows out
+        # Extract tube node voltages
+        v_plate   = (a_p + b_p) / 2.0
+        v_grid    = (a_g + b_g) / 2.0
+        v_cathode = (a_k + b_k) / 2.0
 
-    # Extract tube node voltages
-    v_plate   = (a_p + b_p) / 2.0   # = a_p - R_p*Ip = VB - RP*Ip
-    v_grid    = (a_g + b_g) / 2.0   # = a_g = v_grid_filtered
-    v_cathode = (a_k + b_k) / 2.0   # = a_k + R_k*Ip
+        out_vplate[n] = v_plate
+        out_vgrid[n]  = v_grid
+        out_vk[n]     = v_cathode
+        out_ip[n]     = Ip
 
-    out_vplate[n] = v_plate
-    out_vgrid[n]  = v_grid
-    out_vk[n]     = v_cathode
-    out_ip[n]     = Ip
+        # =================================================================
+        # DOWNWARD PASS: push reflected waves to leaves, update cap state
+        # =================================================================
+        a_ck = b_k + b_cathode - b_ck
+        z_ck = a_ck
 
-    # =================================================================
-    # DOWNWARD PASS: push reflected waves to leaves
-    # =================================================================
-
-    # Plate leaf: no state to update (b = VB is constant)
-    # The plate leaf doesn't use its incident wave for anything.
-
-    # Grid leaf: no state to update
-
-    # Cathode: single resistor, set incident wave (not used, but for completeness)
-    rk_elem.a = b_k
-
-    if n < 5 or (n % 500 == 0):
-        print(f"  [{n:5d}] Vp={v_plate:.2f}V  Vg={v_grid:.4f}V  "
-              f"Vk={v_cathode:.3f}V  Ip={Ip*1000:.4f}mA  vin={vin:.4f}")
+        if n < 5 or (n % 500 == 0):
+            print(f"  [{n:5d}] Vp={v_plate:.2f}V  Vg={v_grid:.4f}V  "
+                  f"Vk={v_cathode:.3f}V  Ip={Ip*1000:.4f}mA  vin={vin:.4f}")
 
 # =============================================================================
 # Analysis

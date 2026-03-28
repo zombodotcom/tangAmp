@@ -13,10 +13,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
-# WDF reference values (from wdf_triode_sim_wdf.py)
-WDF_VPLATE_DC = 146.2     # V
+# WDF reference values (from wdf_triode_sim_wdf.py, with cathode bypass cap)
+WDF_VPLATE_DC = 146.2     # V  (DC unchanged -- cap is open at DC)
 WDF_IP_DC     = 0.538e-3  # A (0.538 mA)
-WDF_GAIN_DB   = 29.1      # dB
+WDF_GAIN_DB   = 34.1      # dB (with Ck=22uF bypass)
 
 # Tolerances
 DC_TOL_PCT    = 5.0   # percent
@@ -30,6 +30,7 @@ VIN input 0 DC 0 SIN(0 0.5 440)
 CIN input grid 22n
 RG grid 0 1MEG
 RK cathode 0 1.5k
+CK cathode 0 22u
 BEd ed 0 V = V(plate,cathode)/600 * ln(1 + exp(600*(0.01 + V(grid,cathode)/sqrt(300 + V(plate,cathode)*V(plate,cathode) + 0.000001))))
 BIp plate cathode I = pwr(max(V(ed),0), 1.4) / 1060
 .options reltol=0.001 abstol=1n vntol=1u

@@ -27,7 +27,16 @@ RP_DEFAULT  = 100000.0
 RG_DEFAULT  = 1000000.0
 RK_DEFAULT  = 1500.0
 CIN_DEFAULT = 22e-9
+CK_DEFAULT  = 22e-6
 FS          = 48000.0
+
+# Cathode bypass cap WDF parameters (default circuit)
+_R_CK = 1.0 / (2.0 * FS * CK_DEFAULT)
+_G_rk = 1.0 / RK_DEFAULT
+_G_ck = 1.0 / _R_CK
+_G_total = _G_rk + _G_ck
+R_CATH_DEFAULT = 1.0 / _G_total
+GAMMA_CATH_DEFAULT = _G_rk / _G_total
 
 # =============================================================================
 # Koren Model
@@ -86,8 +95,9 @@ def find_dc_op(VB, RP, RK, tol=1e-9, max_iter=200):
 # WDF Simulation (self-contained, no high-pass for DC/sweep tests)
 # =============================================================================
 
-def simulate_wdf(audio_in, VB, RP, RK, RG, use_hp=True, cin=CIN_DEFAULT, fs=FS):
-    """Run WDF simulation, return (vplate, ip, vgrid, vk) arrays."""
+def simulate_wdf(audio_in, VB, RP, RK, RG, use_hp=True, cin=CIN_DEFAULT, fs=FS,
+                 use_bypass=True, ck=CK_DEFAULT):
+    """Run WDF simulation with cathode bypass cap, return (vplate, ip, vgrid, vk) arrays."""
     n_total = len(audio_in)
     out_vplate = np.zeros(n_total)
     out_ip = np.zeros(n_total)
@@ -104,13 +114,24 @@ def simulate_wdf(audio_in, VB, RP, RK, RG, use_hp=True, cin=CIN_DEFAULT, fs=FS):
         c_hp = 0.0
         hp_gain = 1.0
 
+    # Cathode bypass cap parameters
+    if use_bypass and ck > 0:
+        r_ck = 1.0 / (2.0 * fs * ck)
+        g_rk = 1.0 / RK
+        g_ck = 1.0 / r_ck
+        g_tot = g_rk + g_ck
+        R_k = 1.0 / g_tot
+        gamma_cath = g_rk / g_tot
+    else:
+        R_k = RK
+        gamma_cath = 0.0  # not used
+
     prev_ip = 0.5e-3
     hp_y = 0.0
     hp_x_prev = 0.0
+    z_ck = 0.0  # capacitor state
 
     R_p = RP
-    R_g = RG
-    R_k = RK
 
     for n in range(n_total):
         vin = audio_in[n]
@@ -126,7 +147,14 @@ def simulate_wdf(audio_in, VB, RP, RK, RG, use_hp=True, cin=CIN_DEFAULT, fs=FS):
         # Reflected waves from leaves
         b_plate = VB
         b_grid = v_grid_filtered
-        b_cathode = 0.0
+
+        if use_bypass and ck > 0:
+            b_rk = 0.0
+            b_ck = z_ck
+            bDiff = b_ck - b_rk
+            b_cathode = b_ck - gamma_cath * bDiff
+        else:
+            b_cathode = 0.0
 
         a_p = b_plate
         a_g = b_grid
@@ -159,6 +187,11 @@ def simulate_wdf(audio_in, VB, RP, RK, RG, use_hp=True, cin=CIN_DEFAULT, fs=FS):
 
         b_p = a_p - 2.0 * R_p * Ip
         b_k = a_k + 2.0 * R_k * Ip
+
+        # Downward pass: update capacitor state
+        if use_bypass and ck > 0:
+            a_ck = b_k + b_cathode - b_ck
+            z_ck = a_ck
 
         v_plate = (a_p + b_p) / 2.0
         v_grid = (a_g + a_g) / 2.0
@@ -326,13 +359,16 @@ def test_small_signal_gain():
     print(f"  ra = {ra/1000:.1f} kOhm")
     print(f"  mu_ss = {mu_ss:.1f}")
 
-    # Analytical gain: Av = mu * RP / (RP + ra + (mu+1)*RK)
-    Av_analytical = mu_ss * RP / (RP + ra + (mu_ss + 1) * RK)
+    # Analytical gain with cathode bypass cap:
+    # Av = mu * RP / (RP + ra)  (RK term disappears because Ck shorts it at AC)
+    Av_analytical = mu_ss * RP / (RP + ra)
     gain_analytical_dB = 20 * np.log10(abs(Av_analytical))
     print(f"  Analytical |Av| = {abs(Av_analytical):.2f} ({gain_analytical_dB:.1f} dB)")
+    print(f"  (With bypass cap: RK term removed from denominator)")
 
     # Simulate with small signal to measure gain
-    n_settle = 500
+    # Need ~10000 samples for bypass cap to fully charge (RK*CK=33ms = ~1584 samples, need 5-6 tau)
+    n_settle = 10000
     n_audio = 960  # 20 cycles of 1kHz at 48kHz
     n_total = n_settle + n_audio
     amplitude = 0.01  # 10mV -- small signal
@@ -394,10 +430,10 @@ def test_dc_sweep():
                 # Bisection reference
                 ip_ref, _, _ = find_dc_op(VB, RP, RK)
 
-                # WDF sim: 500 samples of silence to settle
+                # WDF sim: 500 samples of silence to settle (no bypass cap for DC test)
                 n_settle = 500
                 audio_in = np.zeros(n_settle)
-                vplate, ip_arr, _, _ = simulate_wdf(audio_in, VB, RP, RK, RG_DEFAULT, use_hp=False)
+                vplate, ip_arr, _, _ = simulate_wdf(audio_in, VB, RP, RK, RG_DEFAULT, use_hp=False, use_bypass=False)
                 ip_wdf = ip_arr[-1]
 
                 if ip_ref > 1e-9:
@@ -522,7 +558,7 @@ def test_energy_conservation():
     RP = RP_DEFAULT
     RK = RK_DEFAULT
 
-    n_settle = 200
+    n_settle = 10000
     n_audio = 480
     n_total = n_settle + n_audio
     t = np.arange(n_total) / FS
@@ -589,7 +625,7 @@ def test_frequency_response():
     gains_dB = []
     amplitude = 0.1
 
-    n_settle = 200
+    n_settle = 10000
     n_audio = 480
 
     for f_test in freqs:
@@ -746,7 +782,7 @@ def main():
     # Re-run quick frequency sweep for the plot
     gains_plot = []
     for f_test in freqs_plot:
-        n_s, n_a = 200, 480
+        n_s, n_a = 10000, 480
         n_t = n_s + n_a
         t_arr = np.arange(n_t) / FS
         a_in = np.zeros(n_t)
