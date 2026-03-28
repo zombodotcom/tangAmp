@@ -65,10 +65,10 @@ Gowin GW2AR-LV18QN88C8/I7, synthesized with GowinSynthesis:
 
 | Resource | Used | Available | Utilization |
 |----------|------|-----------|-------------|
-| LUT | 15,810 | 20,736 | 77% |
-| Registers | 780 | 15,750 | 5% |
-| BSRAM | 46 | 46 | 100% |
-| DSP | 13.5 | 24 | 57% |
+| LUT | 13,771 | 20,736 | 67% |
+| Registers | 962 | 15,750 | 7% |
+| BSRAM | 42 | 46 | 92% |
+| DSP | 23 | 24 | 96% |
 
 Fixed-point Q16.16 throughout. 48kHz sample rate. ~180 clock cycles per sample out of 562 available (27MHz / 48kHz).
 
@@ -203,6 +203,20 @@ Constants curve-fitted to RCA datasheet data using `fit_tube_model.py`:
 ### Code
 - [chowdsp_wdf](https://github.com/Chowdhury-DSP/chowdsp_wdf) -- C++ WDF library (used for validation)
 - [RT-WDF](https://github.com/RT-WDF/rt-wdf_lib) -- R-type adaptor support
+
+## Known Limitations (Honest)
+
+- **Interstage attenuation** (12dB) is tuned empirically, not derived from circuit analysis
+- **Grid current Vgk clamp** at 2V is a simplification — real coupling cap blocking should limit this
+- **Cabinet IR is synthetic** — modeled from Thiele-Small parameters, not measured from a real speaker
+- **Output transformer saturation** uses piecewise linear approximation, not magnetic hysteresis
+- **Koren model** is 10.7% mean error vs 12AX7 datasheet (27% max at cutoff region)
+- **No hardware testing yet** — all validation is simulation-only
+- **No oversampling** — 48kHz with tube nonlinearity causes some aliasing
+- **EL34/300B constants** diverge 50-100% at extreme operating points
+- **Coupling cap blocking**, **Miller effect**, **power supply sag**, **noise**, **tremolo** exist as Python models but are NOT in the Verilog chain
+
+See `STATUS.md` for detailed breakdown of what's real vs faked.
 
 ## License
 
