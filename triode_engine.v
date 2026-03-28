@@ -13,8 +13,9 @@
 // ============================================================================
 
 module triode_engine #(
-    parameter NUM_STAGES  = 2,
-    parameter ATTEN_SHIFT = 5,   // right-shift between stages (~-30dB)
+    parameter NUM_STAGES  = 2,        // preamp stages (12AX7)
+    parameter POWER_AMP   = 1,        // 1 = add 6L6 power amp as final stage
+    parameter ATTEN_SHIFT = 5,        // right-shift between stages (~-30dB)
     parameter FP_FRAC     = 16,
     parameter FP_WIDTH    = 32,
     parameter LUT_BITS    = 7,
@@ -22,10 +23,16 @@ module triode_engine #(
     parameter IP_SCALE    = 10000,
     parameter DIP_SCALE   = 100000,
     parameter DIP_VPK_SCALE = 10000000,
+    // 12AX7 preamp ranges
     parameter integer VPK_MIN_MV = 0,
     parameter integer VPK_MAX_MV = 300000,
     parameter integer VGK_MIN_MV = -4000,
-    parameter integer VGK_MAX_MV = 0
+    parameter integer VGK_MAX_MV = 0,
+    // 6L6 power amp ranges
+    parameter integer VPK_MIN_MV_PA = 0,
+    parameter integer VPK_MAX_MV_PA = 500000,
+    parameter integer VGK_MIN_MV_PA = -50000,
+    parameter integer VGK_MAX_MV_PA = 0
 )(
     input  wire        clk,
     input  wire        rst_n,
@@ -39,10 +46,24 @@ module triode_engine #(
 // Constants (same as wdf_triode_wdf.v)
 // ============================================================================
 
-localparam signed [FP_WIDTH-1:0] VB_FP = 200 * (1 << FP_FRAC);
-localparam integer RP_INT  = 100000;
-localparam integer RK_INT  = 1500;
-localparam integer RPK_INT = 100000;
+// 12AX7 preamp constants
+localparam signed [FP_WIDTH-1:0] VB_FP_PRE = 200 * (1 << FP_FRAC);
+localparam integer RP_INT_PRE  = 100000;
+localparam integer RPK_INT_PRE = 100000;  // RP + R_cathode (R_cath ≈ 0)
+
+// 6L6 power amp constants (triode-connected)
+localparam signed [FP_WIDTH-1:0] VB_FP_PA = 400 * (1 << FP_FRAC);
+localparam integer RP_INT_PA  = 2000;     // transformer primary
+localparam integer RPK_INT_PA = 2000;     // RP + R_cathode
+
+// Total stages including power amp
+localparam TOTAL_STAGES = NUM_STAGES + POWER_AMP;
+
+// Active constants (MUXed by is_power_amp)
+reg signed [FP_WIDTH-1:0] vb_active;
+reg signed [31:0] rp_active;
+reg signed [31:0] rpk_active;
+wire is_power_amp = POWER_AMP && (current_stage == TOTAL_STAGES - 1);
 
 localparam signed [FP_WIDTH-1:0] C_HP    = 32'sd65474;
 localparam signed [FP_WIDTH-1:0] HP_GAIN = 32'sd65505;
@@ -57,14 +78,23 @@ localparam DC_SETTLE_SAMPLES = 10000;
 // LUT Memory (shared across all stages)
 // ============================================================================
 
+// 12AX7 preamp LUTs
 reg signed [15:0] ip_lut      [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vgk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vpk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
 
+// 6L6 power amp LUTs
+reg signed [15:0] ip_lut_pa      [0 : LUT_SIZE*LUT_SIZE - 1];
+reg signed [15:0] dip_vgk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
+reg signed [15:0] dip_vpk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
+
 initial begin
-    $readmemh("ip_lut.hex",       ip_lut);
-    $readmemh("dip_dvgk_lut.hex", dip_vgk_lut);
-    $readmemh("dip_dvpk_lut.hex", dip_vpk_lut);
+    $readmemh("ip_lut.hex",           ip_lut);
+    $readmemh("dip_dvgk_lut.hex",     dip_vgk_lut);
+    $readmemh("dip_dvpk_lut.hex",     dip_vpk_lut);
+    $readmemh("ip_lut_6l6.hex",       ip_lut_pa);
+    $readmemh("dip_dvgk_lut_6l6.hex", dip_vgk_lut_pa);
+    $readmemh("dip_dvpk_lut_6l6.hex", dip_vpk_lut_pa);
 end
 
 // ============================================================================
@@ -93,6 +123,29 @@ function automatic [LUT_BITS-1:0] vgk_to_idx;
     end
 endfunction
 
+// Power amp LUT address functions (wider voltage ranges)
+function automatic [LUT_BITS-1:0] vpk_to_idx_pa;
+    input signed [FP_WIDTH-1:0] vpk_fp;
+    reg signed [63:0] tmp;
+    begin
+        tmp = (vpk_fp * 1000) >>> FP_FRAC;
+        if (tmp < VPK_MIN_MV_PA) tmp = VPK_MIN_MV_PA;
+        if (tmp > VPK_MAX_MV_PA) tmp = VPK_MAX_MV_PA;
+        vpk_to_idx_pa = ((tmp - VPK_MIN_MV_PA) * (LUT_SIZE-1)) / (VPK_MAX_MV_PA - VPK_MIN_MV_PA);
+    end
+endfunction
+
+function automatic [LUT_BITS-1:0] vgk_to_idx_pa;
+    input signed [FP_WIDTH-1:0] vgk_fp;
+    reg signed [63:0] tmp;
+    begin
+        tmp = (vgk_fp * 1000) >>> FP_FRAC;
+        if (tmp < VGK_MIN_MV_PA) tmp = VGK_MIN_MV_PA;
+        if (tmp > VGK_MAX_MV_PA) tmp = VGK_MAX_MV_PA;
+        vgk_to_idx_pa = ((tmp - VGK_MIN_MV_PA) * (LUT_SIZE-1)) / (VGK_MAX_MV_PA - VGK_MIN_MV_PA);
+    end
+endfunction
+
 // ============================================================================
 // State Machine
 // ============================================================================
@@ -114,20 +167,20 @@ reg [3:0] state;
 // Stage Counter
 // ============================================================================
 
-reg [$clog2(NUM_STAGES)-1:0] current_stage;
+reg [$clog2(TOTAL_STAGES+1)-1:0] current_stage;
 reg signed [FP_WIDTH-1:0] stage_input;  // Input to current stage
 
 // ============================================================================
 // Per-Stage State Banks (persistent across samples)
 // ============================================================================
 
-reg signed [FP_WIDTH-1:0] bank_hp_prev_in  [0:NUM_STAGES-1];
-reg signed [FP_WIDTH-1:0] bank_hp_prev_out [0:NUM_STAGES-1];
-reg signed [FP_WIDTH-1:0] bank_ck_z        [0:NUM_STAGES-1];
-reg signed [FP_WIDTH-1:0] bank_ip_prev     [0:NUM_STAGES-1];
-reg signed [FP_WIDTH-1:0] bank_vp_dc       [0:NUM_STAGES-1];
-reg [15:0]                bank_sample_count [0:NUM_STAGES-1];
-reg                       bank_dc_frozen    [0:NUM_STAGES-1];
+reg signed [FP_WIDTH-1:0] bank_hp_prev_in  [0:TOTAL_STAGES-1];
+reg signed [FP_WIDTH-1:0] bank_hp_prev_out [0:TOTAL_STAGES-1];
+reg signed [FP_WIDTH-1:0] bank_ck_z        [0:TOTAL_STAGES-1];
+reg signed [FP_WIDTH-1:0] bank_ip_prev     [0:TOTAL_STAGES-1];
+reg signed [FP_WIDTH-1:0] bank_vp_dc       [0:TOTAL_STAGES-1];
+reg [15:0]                bank_sample_count [0:TOTAL_STAGES-1];
+reg                       bank_dc_frozen    [0:TOTAL_STAGES-1];
 
 // ============================================================================
 // Working Registers (loaded from / stored to banks)
@@ -177,7 +230,7 @@ reg signed [FP_WIDTH-1:0] stage_out;
 
 integer init_i;
 initial begin
-    for (init_i = 0; init_i < NUM_STAGES; init_i = init_i + 1) begin
+    for (init_i = 0; init_i < TOTAL_STAGES; init_i = init_i + 1) begin
         bank_hp_prev_in[init_i]   = 0;
         bank_hp_prev_out[init_i]  = 0;
         bank_ck_z[init_i]         = 32'sd53000;
@@ -247,6 +300,17 @@ always @(posedge clk or negedge rst_n) begin
             sample_count <= bank_sample_count[current_stage];
             dc_frozen    <= bank_dc_frozen[current_stage];
 
+            // Select constants for preamp vs power amp
+            if (is_power_amp) begin
+                vb_active  <= VB_FP_PA;
+                rp_active  <= RP_INT_PA;
+                rpk_active <= RPK_INT_PA;
+            end else begin
+                vb_active  <= VB_FP_PRE;
+                rp_active  <= RP_INT_PRE;
+                rpk_active <= RPK_INT_PRE;
+            end
+
             ip_est      <= bank_ip_prev[current_stage];
             newton_iter <= 0;
             state       <= ST_HP;
@@ -269,21 +333,32 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Newton-Raphson: compute LUT address ────────────────────────
         ST_NR_ADDR: begin
-            temp64 = $signed(RPK_INT) * $signed(ip_est);
-            vpk_est <= (VB_FP - b_cathode) - temp64[31:0];
+            temp64 = rpk_active * $signed(ip_est);
+            vpk_est <= (vb_active - b_cathode) - temp64[31:0];
             vgk_est <= vgrid - b_cathode;
 
-            lut_addr <= vpk_to_idx((VB_FP - b_cathode) - temp64[31:0]) * LUT_SIZE
-                      + vgk_to_idx(vgrid - b_cathode);
+            // Use different LUT address functions for preamp vs power amp
+            if (is_power_amp)
+                lut_addr <= vpk_to_idx_pa((vb_active - b_cathode) - temp64[31:0]) * LUT_SIZE
+                          + vgk_to_idx_pa(vgrid - b_cathode);
+            else
+                lut_addr <= vpk_to_idx((vb_active - b_cathode) - temp64[31:0]) * LUT_SIZE
+                          + vgk_to_idx(vgrid - b_cathode);
 
             state <= ST_NR_READ;
         end
 
         // ── BRAM read latency ──────────────────────────────────────────
         ST_NR_READ: begin
-            ip_raw      <= ip_lut[lut_addr];
-            dip_vgk_raw <= dip_vgk_lut[lut_addr];
-            dip_vpk_raw <= dip_vpk_lut[lut_addr];
+            if (is_power_amp) begin
+                ip_raw      <= ip_lut_pa[lut_addr];
+                dip_vgk_raw <= dip_vgk_lut_pa[lut_addr];
+                dip_vpk_raw <= dip_vpk_lut_pa[lut_addr];
+            end else begin
+                ip_raw      <= ip_lut[lut_addr];
+                dip_vgk_raw <= dip_vgk_lut[lut_addr];
+                dip_vpk_raw <= dip_vpk_lut[lut_addr];
+            end
             state <= ST_NR_CONV;
         end
 
@@ -298,7 +373,7 @@ always @(posedge clk or negedge rst_n) begin
         // ── Newton step ────────────────────────────────────────────────
         ST_NR_STEP: begin
             f_val = ip_est - ip_model;
-            temp_a = ($signed(dip_vpk_raw) * $signed(RPK_INT)) <<< FP_FRAC;
+            temp_a = ($signed(dip_vpk_raw) * rpk_active) <<< FP_FRAC;
             fp_val = ONE_FP + temp_a / DIP_VPK_SCALE;
 
             step_num = {f_val, 16'b0};
@@ -321,8 +396,8 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Compute stage output ───────────────────────────────────────
         ST_OUTPUT: begin
-            temp64 = $signed(RP_INT) * $signed(ip_est);
-            stage_out <= (VB_FP - temp64[31:0]) - vp_dc;
+            temp64 = rp_active * $signed(ip_est);
+            stage_out <= (vb_active - temp64[31:0]) - vp_dc;
 
             ip_prev <= ip_est;
 
@@ -332,7 +407,7 @@ always @(posedge clk or negedge rst_n) begin
 
             // DC tracking
             if (!dc_frozen) begin
-                vp_dc <= vp_dc + (((VB_FP - temp64[31:0]) - vp_dc) >>> DC_SHIFT);
+                vp_dc <= vp_dc + (((vb_active - temp64[31:0]) - vp_dc) >>> DC_SHIFT);
                 if (sample_count < DC_SETTLE_SAMPLES)
                     sample_count <= sample_count + 1;
                 else
@@ -353,7 +428,7 @@ always @(posedge clk or negedge rst_n) begin
             bank_sample_count[current_stage] <= sample_count;
             bank_dc_frozen[current_stage]    <= dc_frozen;
 
-            if (current_stage == NUM_STAGES - 1) begin
+            if (current_stage == TOTAL_STAGES - 1) begin
                 // All stages done
                 audio_out <= stage_out;
                 out_valid <= 1'b1;

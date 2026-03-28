@@ -85,6 +85,7 @@ wire triode_valid;
 
 triode_engine #(
     .NUM_STAGES  (2),
+    .POWER_AMP   (1),
     .ATTEN_SHIFT (5)
 ) triode (
     .clk       (clk_27m),
@@ -108,20 +109,8 @@ tone_stack_iir tone (
     .out_valid (tone_valid)
 );
 
-// ── Stage 3: Power Amp (WDF 6L6 triode + transformer soft clip) ─────────
-wire signed [31:0] power_out;
-wire power_valid;
-
-power_amp_wdf power_amp (
-    .clk       (clk_27m),
-    .rst_n     (rst_n),
-    .sample_en (tone_valid),
-    .audio_in  (tone_out),
-    .audio_out (power_out),
-    .out_valid (power_valid)
-);
-
-// ── Stage 4: Cabinet FIR ────────────────────────────────────────────────
+// ── Stage 3: Cabinet FIR ────────────────────────────────────────────────
+// (Power amp is now the final stage inside triode_engine with POWER_AMP=1)
 wire signed [31:0] cab_out;
 wire cab_valid;
 
@@ -130,8 +119,8 @@ cabinet_fir #(
 ) cabinet (
     .clk       (clk_27m),
     .rst_n     (rst_n),
-    .sample_en (power_valid),
-    .audio_in  (power_out),
+    .sample_en (tone_valid),
+    .audio_in  (tone_out),
     .audio_out (cab_out),
     .out_valid (cab_valid)
 );
