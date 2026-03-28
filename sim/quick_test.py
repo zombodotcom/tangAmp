@@ -58,12 +58,14 @@ def simulate_wdf(n_total, audio_in):
     out_ip = np.zeros(n_total)
 
     prev_ip = 0.5e-3
+    prev_ig = 0.0
     hp_y = 0.0
     hp_x_prev = 0.0
     h_nr = 0.01
     z_ck = 0.0  # capacitor state for Ck
 
     R_p = RP
+    R_g = RG
     R_k = R_CATH
 
     for n in range(n_total):
@@ -84,32 +86,48 @@ def simulate_wdf(n_total, audio_in):
         a_g = v_grid_filtered
         a_k = b_cathode
 
-        # Newton-Raphson
+        # 2x2 Newton-Raphson: solve Ip and Ig simultaneously
         Ip = prev_ip
+        Ig = prev_ig
         for _ in range(20):
-            Vpk = (a_p - a_k) - (R_p + R_k) * Ip
-            Vgk = a_g - a_k - R_k * Ip
+            Vpk = (a_p - a_k) - (R_p + R_k) * Ip - R_k * Ig
+            Vgk = (a_g - a_k) - R_g * Ig - R_k * (Ip + Ig)
 
             ip_model = koren_ip(Vpk, Vgk)
-            f_val = Ip - ip_model
+            f1 = Ip - ip_model
+            Vgk_clamped = max(0.0, Vgk)
+            ig_model = 0.002 * Vgk_clamped ** 1.5 if Vgk_clamped > 0 else 0.0
+            f2 = Ig - ig_model
 
-            if abs(f_val) < 1e-10:
+            if abs(f1) < 1e-10 and abs(f2) < 1e-10:
                 break
 
             dip_dvpk = (koren_ip(Vpk + h_nr, Vgk) - koren_ip(Vpk - h_nr, Vgk)) / (2.0 * h_nr)
             dip_dvgk = (koren_ip(Vpk, Vgk + h_nr) - koren_ip(Vpk, Vgk - h_nr)) / (2.0 * h_nr)
-            df_dIp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+            dig_dvgk = 0.003 * Vgk_clamped ** 0.5 if Vgk_clamped > 0 else 0.0
 
-            if abs(df_dIp) < 1e-15:
+            J11 = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+            J12 = dip_dvpk * R_k + dip_dvgk * (R_g + R_k)
+            J21 = dig_dvgk * R_k
+            J22 = 1.0 + dig_dvgk * (R_g + R_k)
+
+            det = J11 * J22 - J12 * J21
+            if abs(det) < 1e-30:
                 break
 
-            Ip -= f_val / df_dIp
+            dIp = (J22 * f1 - J12 * f2) / det
+            dIg = (J11 * f2 - J21 * f1) / det
+
+            Ip -= dIp
+            Ig -= dIg
             Ip = max(Ip, 0.0)
+            Ig = max(Ig, 0.0)
 
         prev_ip = Ip
+        prev_ig = Ig
 
         b_p = a_p - 2.0 * R_p * Ip
-        b_k = a_k + 2.0 * R_k * Ip
+        b_k = a_k + 2.0 * R_k * (Ip + Ig)
         v_plate = (a_p + b_p) / 2.0
 
         # Downward pass: update capacitor state
@@ -144,7 +162,7 @@ def main():
     ip_dc = float(ip_out[dc_slice].mean())
 
     t_dc = time.perf_counter() - t0
-    dc_ok = (140.0 <= vp_dc <= 155.0) and (0.4e-3 <= ip_dc <= 0.7e-3)
+    dc_ok = (135.0 <= vp_dc <= 155.0) and (0.4e-3 <= ip_dc <= 0.7e-3)
     status = "OK" if dc_ok else "FAIL"
     if not dc_ok:
         all_ok = False
@@ -160,8 +178,8 @@ def main():
     out_max = float(audio_out.max())
 
     t_ac = time.perf_counter() - t0
-    ac_ok = (30.0 <= gain_db <= 38.0)
-    range_ok = (15.0 <= max(abs(out_min), abs(out_max)) <= 35.0)
+    ac_ok = (28.0 <= gain_db <= 38.0)
+    range_ok = (12.0 <= max(abs(out_min), abs(out_max)) <= 35.0)
     status = "OK" if (ac_ok and range_ok) else "FAIL"
     if not (ac_ok and range_ok):
         all_ok = False

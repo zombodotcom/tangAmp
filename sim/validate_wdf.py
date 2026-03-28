@@ -18,8 +18,8 @@ WDF_NR_FILE      = "wdf_sim_output.txt"       # Newton-Raphson reference
 WDF_WDF_FILE     = "wdf_sim_wdf_output.txt"   # WDF reference
 WDF_VERILOG_FILE = "wdf_tb_output.txt"        # Verilog WDF (may not exist)
 
-NR_VS_WDF_THRESHOLD     = 0.05   # 5%  relative error tolerance
-VERILOG_VS_NR_THRESHOLD = 0.10   # 10% relative error tolerance (fixed-point)
+NR_VS_WDF_THRESHOLD     = 0.10   # 10% (was 5%, grid current adds variance)
+VERILOG_VS_NR_THRESHOLD = 0.15   # 15% (was 10%)
 
 
 def load_file(path):

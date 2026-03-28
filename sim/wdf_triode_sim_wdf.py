@@ -125,12 +125,14 @@ if HAS_NUMBA:
         out_vk = np.zeros(n_total)
 
         prev_ip = 0.5e-3
+        prev_ig = 0.0
         hp_y = 0.0
         hp_x_prev = 0.0
         h_nr = 0.01
         z_ck = 0.0  # capacitor state for Ck
 
         R_p = RP
+        R_g = RG
         R_k = R_k_port
 
         for n in range(n_total):
@@ -154,51 +156,65 @@ if HAS_NUMBA:
             a_g = b_grid
             a_k = b_cathode
 
-            # Newton-Raphson
+            # 2x2 Newton-Raphson: solve Ip and Ig simultaneously
             Ip = prev_ip
+            Ig = prev_ig
             for iteration in range(20):
-                Vpk = (a_p - a_k) - (R_p + R_k) * Ip
-                Vgk = a_g - a_k - R_k * Ip
+                Vpk = (a_p - a_k) - (R_p + R_k) * Ip - R_k * Ig
+                Vgk = (a_g - a_k) - R_g * Ig - R_k * (Ip + Ig)
 
                 ip_model = _koren_ip_jit(Vpk, Vgk, MU, EX, KG1, KP, KVB)
-                f_val = Ip - ip_model
+                f1 = Ip - ip_model
+                Vgk_clamped = max(0.0, Vgk)
+                if Vgk_clamped > 0:
+                    ig_model = 0.002 * Vgk_clamped ** 1.5
+                else:
+                    ig_model = 0.0
+                f2 = Ig - ig_model
 
-                if abs(f_val) < 1e-10:
+                if abs(f1) < 1e-10 and abs(f2) < 1e-10:
                     break
 
                 dip_dvpk = (_koren_ip_jit(Vpk + h_nr, Vgk, MU, EX, KG1, KP, KVB) -
                             _koren_ip_jit(Vpk - h_nr, Vgk, MU, EX, KG1, KP, KVB)) / (2.0 * h_nr)
                 dip_dvgk = (_koren_ip_jit(Vpk, Vgk + h_nr, MU, EX, KG1, KP, KVB) -
                             _koren_ip_jit(Vpk, Vgk - h_nr, MU, EX, KG1, KP, KVB)) / (2.0 * h_nr)
-                df_dIp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
 
-                if abs(df_dIp) < 1e-15:
+                if Vgk_clamped > 0:
+                    dig_dvgk = 0.003 * Vgk_clamped ** 0.5
+                else:
+                    dig_dvgk = 0.0
+
+                J11 = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+                J12 = dip_dvpk * R_k + dip_dvgk * (R_g + R_k)
+                J21 = dig_dvgk * R_k
+                J22 = 1.0 + dig_dvgk * (R_g + R_k)
+
+                det = J11 * J22 - J12 * J21
+                if abs(det) < 1e-30:
                     break
 
-                Ip -= f_val / df_dIp
+                dIp = (J22 * f1 - J12 * f2) / det
+                dIg = (J11 * f2 - J21 * f1) / det
+
+                Ip -= dIp
+                Ig -= dIg
                 Ip = max(Ip, 0.0)
+                Ig = max(Ig, 0.0)
 
             prev_ip = Ip
+            prev_ig = Ig
 
-            # Grid current: when Vgk > 0, grid draws current
-            # Ig = 0.002 * max(0, Vgk)^1.5 (Langmuir-Child law)
-            Vgk_final = a_g - a_k - R_k * Ip
-            if Vgk_final > 0:
-                Ig = 0.002 * Vgk_final ** 1.5
-            else:
-                Ig = 0.0
-            Ip_total = Ip + Ig
-
-            b_p = a_p - 2.0 * R_p * Ip_total
-            b_g = a_g - 2.0 * RG * Ig  # grid no longer fully reflects
-            b_k = a_k + 2.0 * R_k * Ip_total
+            b_p = a_p - 2.0 * R_p * Ip
+            b_g = a_g - 2.0 * R_g * Ig
+            b_k = a_k + 2.0 * R_k * (Ip + Ig)
 
             # Downward pass: update capacitor state
             a_ck = b_k + b_cathode - b_ck
             z_ck = a_ck
 
             v_plate = (a_p + b_p) / 2.0
-            v_grid = (a_g + a_g) / 2.0
+            v_grid = (a_g + b_g) / 2.0
             v_cathode = (a_k + b_k) / 2.0
 
             out_vplate[n] = v_plate
@@ -289,6 +305,7 @@ if HAS_NUMBA:
                   f"Vk={out_vk[n]:.3f}V  Ip={out_ip[n]*1000:.4f}mA  vin={audio_in[n]:.4f}")
 else:
     prev_ip = 0.5e-3
+    prev_ig = 0.0
 
     # High-pass filter state
     hp_y = 0.0
@@ -330,41 +347,58 @@ else:
         R_g = R_grid
         R_k = R_cathode
 
+        # 2x2 Newton-Raphson: solve Ip and Ig simultaneously
         Ip = prev_ip
+        Ig = prev_ig
         for iteration in range(20):
-            Vpk = (a_p - a_k) - (R_p + R_k) * Ip
-            Vgk = a_g - a_k - R_k * Ip
+            # Compute voltages from both Ip and Ig
+            Vpk = (a_p - a_k) - (R_p + R_k) * Ip - R_k * Ig
+            Vgk = (a_g - a_k) - R_g * Ig - R_k * (Ip + Ig)
 
+            # Residuals
             ip_model = koren_ip(Vpk, Vgk)
-            f_val = Ip - ip_model
+            f1 = Ip - ip_model
+            Vgk_clamped = max(0.0, Vgk)
+            ig_model = 0.002 * Vgk_clamped ** 1.5 if Vgk_clamped > 0 else 0.0
+            f2 = Ig - ig_model
 
-            if abs(f_val) < 1e-10:
+            # Check convergence
+            if abs(f1) < 1e-10 and abs(f2) < 1e-10:
                 break
 
+            # Derivatives of Koren model
             dip_dvpk = koren_dip_dvpk(Vpk, Vgk)
             dip_dvgk = koren_dip_dvgk(Vpk, Vgk)
-            df_dIp = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
 
-            if abs(df_dIp) < 1e-15:
+            # Grid current derivative
+            dig_dvgk = 0.003 * Vgk_clamped ** 0.5 if Vgk_clamped > 0 else 0.0
+
+            # 2x2 Jacobian
+            J11 = 1.0 + dip_dvpk * (R_p + R_k) + dip_dvgk * R_k
+            J12 = dip_dvpk * R_k + dip_dvgk * (R_g + R_k)
+            J21 = dig_dvgk * R_k
+            J22 = 1.0 + dig_dvgk * (R_g + R_k)
+
+            # Solve 2x2 system
+            det = J11 * J22 - J12 * J21
+            if abs(det) < 1e-30:
                 break
 
-            Ip -= f_val / df_dIp
+            dIp = (J22 * f1 - J12 * f2) / det
+            dIg = (J11 * f2 - J21 * f1) / det
+
+            Ip -= dIp
+            Ig -= dIg
             Ip = max(Ip, 0.0)
+            Ig = max(Ig, 0.0)
 
         prev_ip = Ip
+        prev_ig = Ig
 
-        # Grid current: when Vgk > 0, grid draws current
-        Vgk_final = a_g - a_k - R_k * Ip
-        if Vgk_final > 0:
-            Ig = 0.002 * Vgk_final ** 1.5
-        else:
-            Ig = 0.0
-        Ip_total = Ip + Ig
-
-        # Reflected waves from triode back to subtrees
-        b_p = a_p - 2.0 * R_p * Ip_total
-        b_g = a_g - 2.0 * RG * Ig
-        b_k = a_k + 2.0 * R_k * Ip_total
+        # Reflected waves from triode back to subtrees (three-port)
+        b_p = a_p - 2.0 * R_p * Ip
+        b_g = a_g - 2.0 * R_g * Ig
+        b_k = a_k + 2.0 * R_k * (Ip + Ig)
 
         # Extract tube node voltages
         v_plate   = (a_p + b_p) / 2.0
