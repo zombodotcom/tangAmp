@@ -84,9 +84,9 @@ reg signed [15:0] dip_vgk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vpk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
 
 initial begin
-    $readmemh("ip_lut.hex",       ip_lut);
-    $readmemh("dip_dvgk_lut.hex", dip_vgk_lut);
-    $readmemh("dip_dvpk_lut.hex", dip_vpk_lut);
+    $readmemh("data/ip_lut.hex",       ip_lut);
+    $readmemh("data/dip_dvgk_lut.hex", dip_vgk_lut);
+    $readmemh("data/dip_dvpk_lut.hex", dip_vpk_lut);
 end
 
 // ============================================================================

@@ -19,6 +19,18 @@ Guitar -> [I2S ADC] -> [Triode Engine] -> [Tone Stack] -> [Cabinet IR] -> [I2S D
             i2s_rx.v    triode_engine.v    tone_stack.v    cabinet_fir.v    i2s_tx.v
 ```
 
+## Directory Structure
+```
+rtl/           Verilog source modules (synthesizable RTL)
+fpga/          Synthesis scripts, constraints, testbenches
+sim/           Python simulation, validation, tools, demos
+data/          Hex files (tube LUTs + cabinet IRs)
+demos/         Generated demo audio, plots, validation images
+docs/          Plans, specs, reference docs
+ui/            React dashboard
+chowdsp_wdf/  C++ WDF reference library (submodule)
+```
+
 ## FPGA Resource Usage (Gowin GW2AR-LV18QN88C8/I7)
 | Resource | Used | Available | Utilization |
 |----------|------|-----------|-------------|
@@ -34,19 +46,27 @@ Guitar -> [I2S ADC] -> [Triode Engine] -> [Tone Stack] -> [Cabinet IR] -> [I2S D
 4. chowdsp_wdf C++ (established WDF library, 0.18% error)
 5. Physics validation: datasheet match, analytical gain, energy conservation, frequency response
 
-## Verilog Modules
+## Verilog Modules (rtl/)
 - `wdf_triode_wdf.v` -- Single WDF triode stage (12AX7, cathode bypass cap, 14 clocks)
 - `triode_engine.v` -- Time-multiplexed N-stage cascade sharing one set of LUT BRAMs
 - `tone_stack_iir.v` -- 3 cascaded biquad IIR (bass/mid/treble), 9 clocks
 - `cabinet_fir.v` -- 129-tap FIR convolution for speaker cabinet, 129 clocks
+- `output_transformer.v` -- Bandpass + soft clip
+- `nfb_register.v` -- Negative feedback register
+- `power_amp_wdf.v` -- 6L6 power amp WDF stage
 - `clk_audio_gen.v` -- 27MHz to BCK(3MHz)/LRCK(46.875kHz) clock gen
 - `i2s_rx.v` -- I2S receiver for PCM1802 ADC
 - `i2s_tx.v` -- I2S transmitter for PCM5102 DAC
 - `tangamp_top.v` -- Full I2S audio chain integration
-- `fpga/tangamp_selftest.v` -- Self-test (internal sine, VU meter LEDs, no external hardware)
 
-## Python Scripts
-- `tube_lut_gen.py` -- LUT generator (Koren equation, 6 tube types)
+## FPGA Files (fpga/)
+- `tangamp_selftest.v` -- Self-test (internal sine, VU meter LEDs, no external hardware)
+- `synthesize.tcl` -- Gowin synthesis script
+- `tangnano20k.cst` -- Pin constraints
+- `*_tb.v` -- Testbenches
+
+## Python Scripts (sim/)
+- `tube_lut_gen.py` -- LUT generator (Koren equation, 6 tube types) -> data/
 - `wdf_triode_sim.py` -- Newton-Raphson reference simulation
 - `wdf_triode_sim_wdf.py` -- WDF wave-variable simulation
 - `wdf_triode_sim_v2.py` -- Cascaded stages simulation
@@ -61,25 +81,31 @@ Guitar -> [I2S ADC] -> [Triode Engine] -> [Tone Stack] -> [Cabinet IR] -> [I2S D
 - `quick_test.py` -- Sub-1-second smoke test
 - `run_tests.py` -- Full parallel test pipeline
 - `generate_demos.py` -- Demo audio generation
-- `gen_cab_taps.py` -- Cabinet FIR hex file generator
+- `gen_cab_taps.py` -- Cabinet FIR hex file generator -> data/
+- `process_cab_irs.py` -- Process WAV cabinet IRs to hex -> data/
 
 ## Build/Sim Workflow
 ```bash
-# Regenerate LUTs and cabinet IR
+# All sim/validation scripts run from sim/ directory
+cd sim
+
+# Regenerate LUTs and cabinet IR (outputs to data/)
 python tube_lut_gen.py
 python gen_cab_taps.py
 
 # Quick smoke test (<1s)
 python quick_test.py
 
-# Simulate single triode
-iverilog -g2012 -o wdf_sim_v wdf_triode_wdf_tb.v wdf_triode_wdf.v && vvp wdf_sim_v
-python analyze_tb.py wdf_tb_output.txt
+# Simulate single triode (from project root)
+cd ..
+iverilog -g2012 -o wdf_sim_v fpga/wdf_triode_wdf_tb.v rtl/wdf_triode_wdf.v && vvp wdf_sim_v
+python sim/analyze_tb.py wdf_tb_output.txt
 
-# Full chain simulation
-iverilog -g2012 -o sim_full fpga/tangamp_fullchain_tb.v fpga/tangamp_selftest.v triode_engine.v tone_stack_iir.v cabinet_fir.v wdf_triode_wdf.v && vvp sim_full
+# Full chain simulation (from project root)
+iverilog -g2012 -o sim_full fpga/tangamp_fullchain_tb.v fpga/tangamp_selftest.v rtl/triode_engine.v rtl/tone_stack_iir.v rtl/cabinet_fir.v rtl/wdf_triode_wdf.v && vvp sim_full
 
-# Cross-validation
+# Cross-validation (from sim/)
+cd sim
 python validate_wdf.py && python validate_physics.py && python validate_spice.py
 
 # Synthesize for Tang Nano 20K
@@ -92,7 +118,7 @@ programmer_cli --device GW2AR-18C --run 2 --fsFile fpga/impl/pnr/project.fs
 ## Tube Types Supported (Koren constants)
 - **Preamp:** 12AX7 (mu=100), 12AU7 (mu=27.48, fitted), 6SL7 (mu=90.41)
 - **Power amp:** EL34 (mu=10.98), 6L6 (mu=10.11), 300B (mu=3.95)
-- Curve-fitted 12AX7/12AU7 constants in `fit_tube_model.py` (10.7%/2.6% mean error vs RCA datasheet)
+- Curve-fitted 12AX7/12AU7 constants in `sim/fit_tube_model.py` (10.7%/2.6% mean error vs RCA datasheet)
 
 ## Key References
 

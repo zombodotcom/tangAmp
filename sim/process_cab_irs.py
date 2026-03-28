@@ -17,6 +17,7 @@ from math import gcd
 
 TARGET_SR = 48000
 TARGET_LEN = 256  # 5.3ms at 48kHz
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 
 def load_wav(path):
     sr, data = wavfile.read(path)
@@ -127,7 +128,7 @@ def main():
             ir = process_ir(data_48k)
             ir_q15 = quantize_q15(ir)
 
-            hex_path = f"cab_ir_{name}.hex"
+            hex_path = os.path.join(DATA_DIR, f"cab_ir_{name}.hex")
             write_hex(ir_q15, hex_path)
             print(f"    -> {hex_path} ({len(ir_q15)} samples, Q1.15)")
 
@@ -219,7 +220,7 @@ def main():
 
     ir = process_ir(data_48k)
     ir_q15 = quantize_q15(ir)
-    write_hex(ir_q15, "cab_ir_1x12_dd4wh.hex")
+    write_hex(ir_q15, os.path.join(DATA_DIR, "cab_ir_1x12_dd4wh.hex"))
     print(f"  -> cab_ir_1x12_dd4wh.hex (256 samples, Q1.15)")
     analyze_freq_response(ir, TARGET_SR, "1x12_dd4wh (embedded)")
     processed_count += 1
@@ -229,7 +230,7 @@ def main():
     print(f"TOTAL: {processed_count} cabinet IR hex files generated")
     print("=" * 60)
 
-    hex_files = sorted(glob.glob("cab_ir_*.hex"))
+    hex_files = sorted(glob.glob(os.path.join(DATA_DIR, "cab_ir_*.hex")))
     for f in hex_files:
         size = os.path.getsize(f)
         print(f"  {f:45s} {size:6d} bytes")

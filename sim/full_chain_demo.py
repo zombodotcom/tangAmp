@@ -313,7 +313,7 @@ def save_wav(filename, signal, fs=48000):
 # =============================================================================
 
 if __name__ == "__main__":
-    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demos")
     os.makedirs(demos_dir, exist_ok=True)
 
     # Input: E power chord (82Hz + 123Hz + 165Hz) at 0.15V each, 3 seconds

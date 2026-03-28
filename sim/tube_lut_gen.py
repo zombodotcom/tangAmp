@@ -2,7 +2,7 @@
 12AX7 Triode LUT Generator
 Generates lookup tables for the Koren tube model for use in FPGA WDF implementation.
 
-Outputs:
+Outputs (in data/):
   - ip_lut.hex       : plate current Ip(Vpk, Vgk) as 16-bit fixed point
   - dip_dvgk_lut.hex : derivative dIp/dVgk(Vpk, Vgk) as 16-bit fixed point
   - lut_params.v     : Verilog parameters for LUT addressing
@@ -12,6 +12,11 @@ Outputs:
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
+DEMOS_DIR = os.path.join(SCRIPT_DIR, "..", "demos")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # ─── Tube Parameters ──────────────────────────────────────────────────────────
 # Common preamp and power tubes — swap these to change amp character
@@ -167,9 +172,9 @@ for tube_name, cfg in TUBE_CONFIGS.items():
     dip_fixed     = to_fixed16(dip_grid, DIP_SCALE)
     dip_vpk_fixed = to_fixed16(dip_vpk_grid, DIP_VPK_SCALE)
 
-    write_hex(f"ip_lut{suffix}.hex",       ip_fixed)
-    write_hex(f"dip_dvgk_lut{suffix}.hex", dip_fixed)
-    write_hex(f"dip_dvpk_lut{suffix}.hex", dip_vpk_fixed)
+    write_hex(os.path.join(DATA_DIR, f"ip_lut{suffix}.hex"),       ip_fixed)
+    write_hex(os.path.join(DATA_DIR, f"dip_dvgk_lut{suffix}.hex"), dip_fixed)
+    write_hex(os.path.join(DATA_DIR, f"dip_dvpk_lut{suffix}.hex"), dip_vpk_fixed)
 
     all_plot_data[tube_name] = {
         "p": p, "Vpk_axis": Vpk_axis, "Vgk_axis": Vgk_axis,
@@ -225,9 +230,10 @@ parameter real KP_6L6  = {p_6l6['kp']};
 parameter real KVB_6L6 = {p_6l6['kvb']};
 """
 
-with open("lut_params.v", 'w') as f:
+lut_params_path = os.path.join(DATA_DIR, "lut_params.v")
+with open(lut_params_path, 'w') as f:
     f.write(verilog_params)
-print("\n  Written: lut_params.v")
+print(f"\n  Written: {lut_params_path}")
 
 # ─── Visualize ────────────────────────────────────────────────────────────────
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -264,8 +270,9 @@ for row, tube_name in enumerate(["12AX7", "6L6"]):
     ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("tube_plot.png", dpi=150, bbox_inches='tight')
-print("  Written: tube_plot.png")
+tube_plot_path = os.path.join(DEMOS_DIR, "tube_plot.png")
+plt.savefig(tube_plot_path, dpi=150, bbox_inches='tight')
+print(f"  Written: {tube_plot_path}")
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 print(f"\nDone. Files generated for {LUT_SIZE}x{LUT_SIZE} LUTs:")

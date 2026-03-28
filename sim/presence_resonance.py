@@ -308,7 +308,7 @@ def measure_frequency_response(presence=5.0, resonance=5.0, nfb_amount=0.1,
 # =============================================================================
 
 if __name__ == "__main__":
-    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demos")
     os.makedirs(demos_dir, exist_ok=True)
 
     # =========================================================================

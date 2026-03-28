@@ -23,7 +23,7 @@ def main():
     # Quantize to Q1.15 (signed 16-bit, range -1.0 to +0.99997)
     taps_q15 = np.clip(taps * 32768, -32768, 32767).astype(np.int16)
 
-    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cab_ir.hex")
+    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "cab_ir.hex")
     with open(out_path, "w") as f:
         for t in taps_q15:
             f.write(f"{int(t) & 0xFFFF:04X}\n")

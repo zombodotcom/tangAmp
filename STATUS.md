@@ -79,39 +79,39 @@ These exist as standalone scripts with demos but are NOT in the FPGA signal chai
 
 ## Key Files for Development
 
-### Core Verilog (the product):
+### Core Verilog (rtl/):
 ```
-wdf_triode_wdf.v      — single WDF triode stage (the proven core)
-triode_engine.v        — time-mux N stages + power amp, shared BRAM
-tone_stack_iir.v       — 3 biquad IIR (Fender/Marshall coefficients)
-output_transformer.v   — bandpass + soft clip
-nfb_register.v         — negative feedback register
-cabinet_fir.v          — 129-tap FIR convolution
-clk_audio_gen.v        — I2S clock generation
-i2s_rx.v / i2s_tx.v    — I2S ADC/DAC interface
-tangamp_top.v          — full I2S audio chain
-fpga/tangamp_selftest.v — self-test (internal sine, LED VU meter)
+rtl/wdf_triode_wdf.v      — single WDF triode stage (the proven core)
+rtl/triode_engine.v        — time-mux N stages + power amp, shared BRAM
+rtl/tone_stack_iir.v       — 3 biquad IIR (Fender/Marshall coefficients)
+rtl/output_transformer.v   — bandpass + soft clip
+rtl/nfb_register.v         — negative feedback register
+rtl/cabinet_fir.v          — 129-tap FIR convolution
+rtl/clk_audio_gen.v        — I2S clock generation
+rtl/i2s_rx.v / i2s_tx.v   — I2S ADC/DAC interface
+rtl/tangamp_top.v          — full I2S audio chain
+fpga/tangamp_selftest.v    — self-test (internal sine, LED VU meter)
 ```
 
-### Python (validation + demos):
+### Python (sim/):
 ```
-tube_lut_gen.py        — generates all LUT hex files
-validate_all.py        — runs ALL validation in one command
-quick_test.py          — 1-second smoke test
-validate_wdf.py        — cross-validation (Python vs Verilog)
-validate_physics.py    — 5 physics tests
-validate_spice.py      — ngspice independent validation
-validate_6l6.py        — 6L6 power tube validation
-amp_sim.py             — full amp simulator with presets
+sim/tube_lut_gen.py        — generates all LUT hex files -> data/
+sim/validate_all.py        — runs ALL validation in one command
+sim/quick_test.py          — 1-second smoke test
+sim/validate_wdf.py        — cross-validation (Python vs Verilog)
+sim/validate_physics.py    — 5 physics tests
+sim/validate_spice.py      — ngspice independent validation
+sim/validate_6l6.py        — 6L6 power tube validation
+sim/amp_sim.py             — full amp simulator with presets
 ```
 
 ### Build commands:
 ```bash
-python tube_lut_gen.py                    # regenerate LUTs
-python quick_test.py                       # smoke test
-python validate_all.py                     # full validation
+cd sim && python tube_lut_gen.py           # regenerate LUTs -> data/
+cd sim && python quick_test.py             # smoke test
+cd sim && python validate_all.py           # full validation
 export PATH="$PATH:/c/iverilog/bin"
-iverilog -g2012 -o sim_verified fpga/tangamp_verified_tb.v fpga/tangamp_selftest.v triode_engine.v wdf_triode_wdf.v tone_stack_iir.v output_transformer.v nfb_register.v cabinet_fir.v && vvp sim_verified
+iverilog -g2012 -o sim_verified fpga/tangamp_verified_tb.v fpga/tangamp_selftest.v rtl/triode_engine.v rtl/wdf_triode_wdf.v rtl/tone_stack_iir.v rtl/output_transformer.v rtl/nfb_register.v rtl/cabinet_fir.v && vvp sim_verified
 cd fpga && gw_sh synthesize.tcl           # Gowin synthesis
 ```
 

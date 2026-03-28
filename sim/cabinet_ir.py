@@ -295,7 +295,7 @@ def save_wav(filename, signal, fs=48000):
 # =============================================================================
 
 if __name__ == "__main__":
-    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demos")
     os.makedirs(demos_dir, exist_ok=True)
 
     # Generate 3 seconds of 440Hz sine through 1-stage triode with bypass

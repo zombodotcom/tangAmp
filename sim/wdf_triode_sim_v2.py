@@ -304,7 +304,7 @@ if __name__ == "__main__":
     audio_in = np.zeros(n_total)
     audio_in[n_settle:] = 0.5 * np.sin(2 * np.pi * 440 * t[n_settle:])
 
-    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demos")
     os.makedirs(demos_dir, exist_ok=True)
 
     results = {}

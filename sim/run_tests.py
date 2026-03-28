@@ -131,7 +131,7 @@ def run_full():
         # Use shell=True for chained command
         label, success, elapsed, stdout, stderr = run_cmd(
             "Verilog compile+sim",
-            "iverilog -g2012 -o wdf_sim_v wdf_triode_wdf_tb.v wdf_triode_wdf.v && vvp wdf_sim_v",
+            "iverilog -g2012 -o wdf_sim_v ../fpga/wdf_triode_wdf_tb.v ../rtl/wdf_triode_wdf.v && vvp wdf_sim_v",
             shell=True
         )
         # Count samples in output file

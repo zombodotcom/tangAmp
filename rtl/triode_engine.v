@@ -89,12 +89,12 @@ reg signed [15:0] dip_vgk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vpk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
 
 initial begin
-    $readmemh("ip_lut.hex",           ip_lut);
-    $readmemh("dip_dvgk_lut.hex",     dip_vgk_lut);
-    $readmemh("dip_dvpk_lut.hex",     dip_vpk_lut);
-    $readmemh("ip_lut_6l6.hex",       ip_lut_pa);
-    $readmemh("dip_dvgk_lut_6l6.hex", dip_vgk_lut_pa);
-    $readmemh("dip_dvpk_lut_6l6.hex", dip_vpk_lut_pa);
+    $readmemh("data/ip_lut.hex",           ip_lut);
+    $readmemh("data/dip_dvgk_lut.hex",     dip_vgk_lut);
+    $readmemh("data/dip_dvpk_lut.hex",     dip_vpk_lut);
+    $readmemh("data/ip_lut_6l6.hex",       ip_lut_pa);
+    $readmemh("data/dip_dvgk_lut_6l6.hex", dip_vgk_lut_pa);
+    $readmemh("data/dip_dvpk_lut_6l6.hex", dip_vpk_lut_pa);
 end
 
 // ============================================================================

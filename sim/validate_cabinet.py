@@ -223,7 +223,7 @@ def check_key_features(freqs_hz, sp_db):
 
 
 def main():
-    hex_path = os.path.join(SCRIPT_DIR, "cab_ir.hex")
+    hex_path = os.path.join(SCRIPT_DIR, "..", "data", "cab_ir.hex")
     if not os.path.exists(hex_path):
         print(f"ERROR: {hex_path} not found. Run gen_cab_taps.py first.")
         sys.exit(1)
@@ -373,7 +373,7 @@ def main():
                       alpha=0.8))
 
     plt.tight_layout()
-    plot_path = os.path.join(SCRIPT_DIR, "validation_cabinet.png")
+    plot_path = os.path.join(SCRIPT_DIR, "..", "demos", "validation_cabinet.png")
     plt.savefig(plot_path, dpi=150)
     print(f"\nSaved plot: {plot_path}")
 
@@ -387,7 +387,7 @@ def main():
         'frequency_shape': shape,
         'overall_pass': all_pass,
     }
-    json_path = os.path.join(SCRIPT_DIR, "validation_cabinet.json")
+    json_path = os.path.join(SCRIPT_DIR, "..", "demos", "validation_cabinet.json")
 
     class NumpyEncoder(json.JSONEncoder):
         def default(self, obj):

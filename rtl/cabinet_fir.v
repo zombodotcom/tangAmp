@@ -32,7 +32,7 @@ module cabinet_fir #(
 reg signed [15:0] taps [0:N_TAPS-1];
 
 initial begin
-    $readmemh("cab_ir.hex", taps);
+    $readmemh("data/cab_ir.hex", taps);
 end
 
 // ============================================================================

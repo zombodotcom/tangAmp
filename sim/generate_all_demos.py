@@ -23,7 +23,7 @@ from amp_sim import AmpSim, save_wav, FS
 
 PRESETS = ['fender_deluxe', 'marshall_jcm800', 'vox_ac30', 'mesa_dual_rec', 'fender_twin']
 N_SETTLE = 2000
-DEMOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+DEMOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demos")
 
 
 # =============================================================================

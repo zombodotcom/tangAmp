@@ -573,7 +573,7 @@ TESTS = [
     ("Python NR Simulation", "python wdf_triode_sim.py"),
     ("Python WDF Simulation", "python wdf_triode_sim_wdf.py"),
     ("LUT Generation", "python tube_lut_gen.py"),
-    ("Verilog Compile + Sim", "iverilog -g2012 -o wdf_sim_v wdf_triode_wdf_tb.v wdf_triode_wdf.v && vvp wdf_sim_v"),
+    ("Verilog Compile + Sim", "iverilog -g2012 -o wdf_sim_v ../fpga/wdf_triode_wdf_tb.v ../rtl/wdf_triode_wdf.v && vvp wdf_sim_v"),
     ("Verilog Analysis", "python analyze_tb.py wdf_tb_output.txt"),
     ("Cross-Validation", "python validate_wdf.py"),
     ("Physics Validation", "python validate_physics.py"),

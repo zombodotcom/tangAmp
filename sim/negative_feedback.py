@@ -236,7 +236,7 @@ def measure_thd(signal, fundamental_freq, fs=48000.0, n_harmonics=8):
 # =============================================================================
 
 if __name__ == "__main__":
-    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+    demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demos")
     os.makedirs(demos_dir, exist_ok=True)
 
     # Input: 82Hz E2 note (single sine for clean THD measurement), 0.5 second
