@@ -1,5 +1,6 @@
 set_device -name GW2AR-18C GW2AR-LV18QN88C8/I7
 add_file tangamp_selftest.v
+add_file ../rtl/oversample_2x.v
 add_file ../rtl/triode_engine.v
 add_file ../rtl/wdf_triode_wdf.v
 add_file ../rtl/tone_stack_iir.v

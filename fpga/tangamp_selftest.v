@@ -2,11 +2,15 @@
 // tangamp_selftest.v
 // Self-test top-level for Tang Nano 20K — no external ADC/DAC needed.
 //
-// Full signal chain:
-//   440Hz sine - nfb -> triode_engine (2 stages) -> tone_stack_iir
-//   -> output_transformer -> cabinet_fir -> VU meter LEDs
-//                                              |
-//                                         nfb_register <-
+// Full signal chain with 2x oversampling on the nonlinear triode stage:
+//   440Hz sine - nfb -> [upsample 2x] -> triode_engine (runs 2x at 96kHz)
+//   -> [downsample 2x] -> tone_stack_iir -> output_transformer
+//   -> cabinet_fir -> VU meter LEDs
+//                        |
+//                   nfb_register <-
+//
+// Only the triode (nonlinear) runs at 96kHz to reduce aliasing.
+// Linear stages (tone stack, transformer, cabinet) remain at 48kHz.
 //
 // LED[0] = heartbeat (proves clock running)
 // LED[1:5] = output level (VU meter, 5 segments)
@@ -92,9 +96,45 @@ always @(posedge clk_27m or negedge rst_n) begin
         triode_input <= audio_in - nfb_signal;
 end
 
-// ── Stage 1: Triode Engine (2 cascaded stages, shared LUTs) ─────────────
+// ── 2x Oversampling + Triode Engine ─────────────────────────────────────
+// The oversampler generates two samples per 48kHz period.
+// A controller state machine runs the triode engine twice (pass A, pass B)
+// then feeds results back to the oversampler for decimation.
+
+wire        up_valid_a, up_valid_b;
+wire signed [31:0] audio_up;
+
+// Triode engine I/O
+reg         triode_start;
+reg  signed [31:0] triode_in;
 wire signed [31:0] triode_out;
-wire triode_valid;
+wire        triode_valid;
+
+// Processed samples for downsampling
+reg  signed [31:0] proc_a_sample;
+reg         proc_a_valid;
+reg  signed [31:0] proc_b_sample;
+reg         proc_b_valid;
+
+// Downsampled output
+wire signed [31:0] audio_down;
+wire        down_valid;
+
+oversample_2x oversamp (
+    .clk            (clk_27m),
+    .rst_n          (rst_n),
+    .sample_en_48k  (sample_en),
+    .audio_in       (triode_input),
+    .up_valid_a     (up_valid_a),
+    .up_valid_b     (up_valid_b),
+    .audio_up       (audio_up),
+    .processed_a    (proc_a_sample),
+    .proc_valid_a   (proc_a_valid),
+    .processed_b    (proc_b_sample),
+    .proc_valid_b   (proc_b_valid),
+    .audio_down     (audio_down),
+    .down_valid     (down_valid)
+);
 
 triode_engine #(
     .NUM_STAGES  (2),
@@ -102,21 +142,104 @@ triode_engine #(
 ) triode (
     .clk       (clk_27m),
     .rst_n     (rst_n),
-    .sample_en (sample_en),
-    .audio_in  (triode_input),
+    .sample_en (triode_start),
+    .audio_in  (triode_in),
     .audio_out (triode_out),
     .out_valid (triode_valid)
 );
 
-// ── Stage 2: Tone Stack (3-band biquad EQ) ──────────────────────────────
+// ── Oversampling Controller State Machine ───────────────────────────────
+// Sequence per 48kHz sample:
+//   1. Oversampler outputs up_valid_a with first sample
+//   2. We start triode pass A
+//   3. Triode finishes pass A -> capture result, start pass B with second sample
+//   4. Oversampler has already output up_valid_b (second sample held)
+//   5. Triode finishes pass B -> feed both results to downsampler
+
+localparam OS_IDLE       = 3'd0;
+localparam OS_WAIT_TRI_A = 3'd1;  // Waiting for triode pass A to complete
+localparam OS_START_B    = 3'd2;  // Start triode pass B
+localparam OS_WAIT_TRI_B = 3'd3;  // Waiting for triode pass B to complete
+localparam OS_DECIMATE   = 3'd4;  // Feed results to downsampler
+
+reg [2:0] os_state;
+reg signed [31:0] up_b_held;      // Hold second upsampled sample
+reg signed [31:0] triode_a_held;  // Hold first triode result
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        os_state      <= OS_IDLE;
+        triode_start  <= 1'b0;
+        triode_in     <= 32'sd0;
+        proc_a_valid  <= 1'b0;
+        proc_b_valid  <= 1'b0;
+        proc_a_sample <= 32'sd0;
+        proc_b_sample <= 32'sd0;
+        up_b_held     <= 32'sd0;
+        triode_a_held <= 32'sd0;
+    end else begin
+        triode_start <= 1'b0;
+        proc_a_valid <= 1'b0;
+        proc_b_valid <= 1'b0;
+
+        case (os_state)
+
+        OS_IDLE: begin
+            if (up_valid_a) begin
+                // First upsampled sample ready — start triode pass A
+                triode_in    <= audio_up;
+                triode_start <= 1'b1;
+                os_state     <= OS_WAIT_TRI_A;
+            end
+        end
+
+        OS_WAIT_TRI_A: begin
+            // Capture second upsampled sample when it appears
+            if (up_valid_b) begin
+                up_b_held <= audio_up;
+            end
+
+            // Wait for triode to finish pass A
+            if (triode_valid) begin
+                triode_a_held <= triode_out;
+                os_state      <= OS_START_B;
+            end
+        end
+
+        OS_START_B: begin
+            // Start triode pass B with second upsampled sample
+            triode_in    <= up_b_held;
+            triode_start <= 1'b1;
+            os_state     <= OS_WAIT_TRI_B;
+        end
+
+        OS_WAIT_TRI_B: begin
+            // Wait for triode to finish pass B
+            if (triode_valid) begin
+                // Both passes done — send to downsampler
+                proc_a_sample <= triode_a_held;
+                proc_a_valid  <= 1'b1;
+                proc_b_sample <= triode_out;
+                proc_b_valid  <= 1'b1;
+                os_state      <= OS_IDLE;
+            end
+        end
+
+        default: os_state <= OS_IDLE;
+
+        endcase
+    end
+end
+
+// ── Stage 2: Tone Stack (3-band biquad EQ) at 48kHz ────────────────────
 wire signed [31:0] tone_out;
 wire tone_valid;
 
 tone_stack_iir tone (
     .clk       (clk_27m),
     .rst_n     (rst_n),
-    .sample_en (triode_valid),
-    .audio_in  (triode_out),
+    .sample_en (down_valid),
+    .audio_in  (audio_down),
     .audio_out (tone_out),
     .out_valid (tone_valid)
 );
@@ -134,7 +257,7 @@ output_transformer xformer (
     .out_valid (xf_valid)
 );
 
-// ── Stage 4: Cabinet FIR ────────────────────────────────────────────────
+// ── Stage 4: Cabinet FIR at 48kHz ──────────────────────────────────────
 wire signed [31:0] cab_out;
 wire cab_valid;
 
