@@ -10,7 +10,7 @@
 
 module triode_cascade #(
     parameter NUM_STAGES = 2,
-    parameter ATTEN_SHIFT = 2  // -12dB between stages
+    parameter ATTEN_SHIFT = 5  // -30dB between stages (real amps: ~-24 to -30dB)
 )(
     input  wire        clk,
     input  wire        rst_n,

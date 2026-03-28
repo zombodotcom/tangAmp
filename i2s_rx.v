@@ -93,10 +93,11 @@ always @(posedge clk or negedge rst_n) begin
         end else if (lrck_rise) begin
             // Right channel starting - output left channel result
             if (is_left && bit_cnt >= 6'd24) begin
-                // Sign-extend 24-bit to 32-bit, then shift right 8 for Q16.16
-                // 24-bit ADC value: treat as signed, MSB is sign
-                // Q16.16 = sign_extend(24bit) >>> 8  (preserves sign, aligns fraction)
-                audio_l <= {{8{shift_reg[23]}}, shift_reg} <<< 8;
+                // Sign-extend 24-bit to 32-bit, shift right 8 for Q16.16
+                // 24-bit full scale ±2^23 → Q16.16 ±2^15 = ±128V range
+                // 0.5V guitar = ~4M in 24-bit → ~16K in Q16.16 = ~0.25V
+                // Good: keeps guitar signals in the ~0.1-1V Q16.16 range
+                audio_l <= $signed({{8{shift_reg[23]}}, shift_reg}) >>> 8;
                 valid   <= 1'b1;
             end
             capturing  <= 1'b0;
