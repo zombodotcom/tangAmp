@@ -171,7 +171,8 @@ def simulate_with_nfb(audio_in, preamp_stages=2, preamp_tube='12AX7',
     phase_sign = 1.0 if corr >= 0 else -1.0
 
     # NFB iterations: re-run chain with feedback applied to input
-    for iteration in range(3):
+    # 2 iterations is sufficient for convergence at NFB <= 0.3
+    for iteration in range(2):
         if iteration == 0:
             pa_out = power_out_0
         else:
@@ -238,8 +239,8 @@ if __name__ == "__main__":
     demos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
     os.makedirs(demos_dir, exist_ok=True)
 
-    # Input: 82Hz E2 note (single sine for clean THD measurement), 1 second
-    duration = 1.0
+    # Input: 82Hz E2 note (single sine for clean THD measurement), 0.5 second
+    duration = 0.5
     n_settle = 2000
     n_audio = int(duration * FS)
     n_total = n_settle + n_audio
@@ -249,8 +250,8 @@ if __name__ == "__main__":
     audio_sine = np.zeros(n_total)
     audio_sine[n_settle:] = 0.15 * np.sin(2.0 * np.pi * 82.0 * t[n_settle:])
 
-    # Power chord for WAV demos (3 seconds)
-    duration_wav = 3.0
+    # Power chord for WAV demos (1 second -- kept short for sim speed)
+    duration_wav = 1.0
     n_audio_wav = int(duration_wav * FS)
     n_total_wav = n_settle + n_audio_wav
     t_wav = np.arange(n_total_wav) / FS
