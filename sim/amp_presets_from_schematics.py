@@ -518,7 +518,7 @@ def compute_power_clip_level(schematic):
     base_clip = bplus * 0.45
     if n_tubes >= 4:
         base_clip *= 1.2  # 4 tubes have ~20% more headroom than 2
-    return base_clip
+    return round(base_clip, 1)
 
 
 def compute_effective_power_rp(schematic):
@@ -645,11 +645,11 @@ def print_comparison():
         current = CURRENT_PRESETS[key]
         derived = derive_preset(key)
 
-        print(f"\n{'─' * 100}")
+        print(f"\n{'-' * 100}")
         print(f"  {derived['name']}")
-        print(f"{'─' * 100}")
+        print(f"{'-' * 100}")
         print(f"  {'Parameter':<25s} {'Current (guessed)':<25s} {'Schematic-derived':<25s} {'Changed?'}")
-        print(f"  {'─'*25} {'─'*25} {'─'*25} {'─'*10}")
+        print(f"  {'-'*25} {'-'*25} {'-'*25} {'-'*10}")
 
         for param_key, param_label in params:
             cur_val = current.get(param_key, '???')
@@ -670,9 +670,9 @@ def print_schematic_summary():
     print("=" * 100)
 
     for key, s in SCHEMATICS.items():
-        print(f"\n{'━' * 80}")
+        print(f"\n{'=' * 80}")
         print(f"  {s['name']}")
-        print(f"{'━' * 80}")
+        print(f"{'=' * 80}")
 
         print(f"\n  Preamp ({s['preamp_stages_count']} stages, {s['preamp_tube']}):")
         print(f"  B+ = {s['preamp_Bplus']}V")
@@ -738,7 +738,7 @@ def print_recommended_changes():
 
     print(f"""
   IMPORTANT NOTES:
-  ────────────────
+  ----------------
   1. The Fender Deluxe actually has 3 preamp stages (not 2).
      V1A (input) -> V1B (gain) -> V4B (reverb recovery) on the vibrato channel.
 
