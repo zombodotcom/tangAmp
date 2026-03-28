@@ -96,7 +96,7 @@ def simulate_wdf(n_total, audio_in):
             ip_model = koren_ip(Vpk, Vgk)
             f1 = Ip - ip_model
             Vgk_clamped = max(0.0, Vgk)
-            ig_model = 0.002 * Vgk_clamped ** 1.5 if Vgk_clamped > 0 else 0.0
+            ig_model = 0.0002 * Vgk_clamped ** 1.5 if Vgk_clamped > 0 else 0.0
             f2 = Ig - ig_model
 
             if abs(f1) < 1e-10 and abs(f2) < 1e-10:

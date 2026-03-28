@@ -290,14 +290,14 @@ plt.savefig(tube_plot_path, dpi=150, bbox_inches='tight')
 print(f"  Written: {tube_plot_path}")
 
 # ─── Grid Current LUTs (for 2x2 Newton-Raphson solver) ──────────────────────
-# Langmuir-Child law: Ig = 0.002 * Vgk^1.5 when Vgk > 0
+# Langmuir-Child law: Ig = 0.0002 * Vgk^1.5 when Vgk > 0
 # Derivative: dIg/dVgk = 0.003 * Vgk^0.5
 IG_LUT_SIZE = 64
 IG_VGK_MAX = 2.0  # volts
 
 Vgk_ig_axis = np.linspace(0.0, IG_VGK_MAX, IG_LUT_SIZE)
 
-ig_values = 0.002 * Vgk_ig_axis**1.5
+ig_values = 0.0002 * Vgk_ig_axis**1.5
 dig_values = 0.003 * Vgk_ig_axis**0.5
 
 # Q16.16 fixed point: multiply by 65536, store as unsigned 16-bit hex

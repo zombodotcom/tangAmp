@@ -149,7 +149,7 @@ def simulate_wdf_stage(audio_in, tube_params, fs=48000.0, settle=2000):
             f1 = Ip - ip_model
 
             Vgk_pos = max(0.0, Vgk)
-            ig_model = 0.002 * Vgk_pos**1.5 if Vgk_pos > 0 else 0.0
+            ig_model = 0.0002 * Vgk_pos**1.5 if Vgk_pos > 0 else 0.0
             f2 = Ig - ig_model
 
             if abs(f1) < 1e-10 and abs(f2) < 1e-10:

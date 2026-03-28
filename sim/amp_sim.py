@@ -188,7 +188,7 @@ def simulate_preamp_stage(audio_in, tube_name='12AX7', use_bypass=True, settle=2
         # Grid current: limits positive peaks when Vgk > 0
         # Clamp to max +2V (coupling cap charges prevent higher)
         Vgk_final = min(a_g - a_k - R_k * Ip, 2.0)
-        Ig = 0.002 * max(0.0, Vgk_final) ** 1.5
+        Ig = 0.0002 * max(0.0, Vgk_final) ** 1.5
         Ip_total = Ip + Ig
 
         b_p = a_p - 2.0 * R_p * Ip_total
@@ -261,7 +261,7 @@ def simulate_power_amp(audio_in, tube_name='6L6', vb=400.0, rp=2000.0, rk=250.0,
         prev_ip = Ip
         # Grid current
         Vgk_final = a_g - a_k - rk * Ip
-        Ig = 0.002 * max(0.0, Vgk_final) ** 1.5
+        Ig = 0.0002 * max(0.0, Vgk_final) ** 1.5
         Ip_total = Ip + Ig
         v_plate = vb_eff - rp * Ip_total
         out_vplate[n] = v_plate
