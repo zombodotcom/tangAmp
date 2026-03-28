@@ -15,7 +15,8 @@
 // ============================================================================
 
 module cabinet_fir #(
-    parameter N_TAPS = 129
+    parameter N_TAPS = 256,
+    parameter HEX_FILE = "data/cab_ir.hex"
 )(
     input  wire        clk,
     input  wire        rst_n,
@@ -32,7 +33,7 @@ module cabinet_fir #(
 reg signed [15:0] taps [0:N_TAPS-1];
 
 initial begin
-    $readmemh("data/cab_ir.hex", taps);
+    $readmemh(HEX_FILE, taps);
 end
 
 // ============================================================================

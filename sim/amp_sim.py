@@ -228,7 +228,7 @@ def simulate_power_amp(audio_in, tube_name='6L6', vb=400.0, rp=2000.0, rk=250.0,
     sl = slice(max(settle - 100, 0), settle)
     vp_dc = out_vplate[sl].mean()
     ac_out = out_vplate - vp_dc
-    ac_out = np.tanh(ac_out / clip_level) * clip_level
+    # Grid current in the WDF solver now handles clipping naturally
     return ac_out, vp_dc
 
 
@@ -408,7 +408,7 @@ class AmpSim:
             'fender_deluxe': dict(
                 name='Fender Deluxe Reverb',
                 preamp_stages=2, preamp_tube='12AX7',
-                interstage_atten=12.0,  # coupling network + grid loading
+                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
                 tone_bass=6, tone_mid=5, tone_treble=7,
                 power_tube='6L6', power_vb=400, power_rp=2000, power_rk=250,
                 power_sag=0.3, power_clip=200,
@@ -418,7 +418,7 @@ class AmpSim:
             'marshall_jcm800': dict(
                 name='Marshall JCM800',
                 preamp_stages=3, preamp_tube='12AX7',
-                interstage_atten=12.0,  # coupling network + grid loading
+                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
                 tone_bass=5, tone_mid=8, tone_treble=6,
                 power_tube='EL34', power_vb=450, power_rp=1700, power_rk=200,
                 power_sag=0.2, power_clip=180,
@@ -428,7 +428,7 @@ class AmpSim:
             'vox_ac30': dict(
                 name='Vox AC30',
                 preamp_stages=2, preamp_tube='12AX7',
-                interstage_atten=12.0,  # coupling network + grid loading
+                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
                 tone_bass=7, tone_mid=4, tone_treble=8,
                 power_tube='EL34', power_vb=380, power_rp=1800, power_rk=220,
                 power_sag=0.25, power_clip=170,
@@ -438,7 +438,7 @@ class AmpSim:
             'mesa_dual_rec': dict(
                 name='Mesa Dual Rectifier',
                 preamp_stages=3, preamp_tube='12AX7',
-                interstage_atten=12.0,  # coupling network + grid loading
+                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
                 tone_bass=8, tone_mid=3, tone_treble=7,
                 power_tube='6L6', power_vb=420, power_rp=1900, power_rk=230,
                 power_sag=0.4, power_clip=190,
@@ -448,7 +448,7 @@ class AmpSim:
             'fender_twin': dict(
                 name='Fender Twin Clean',
                 preamp_stages=1, preamp_tube='12AX7',
-                interstage_atten=20.0,
+                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
                 tone_bass=5, tone_mid=6, tone_treble=6,
                 power_tube='6L6', power_vb=400, power_rp=2000, power_rk=250,
                 power_sag=0.15, power_clip=250,
