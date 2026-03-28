@@ -66,7 +66,7 @@ def koren_dip_dvgk(vpk, vgk, tube, h=0.1):
 # Preamp Triode Stage (12AX7, with cathode bypass)
 # =============================================================================
 
-# Preamp circuit constants
+# Default preamp circuit constants (used when per-stage params not provided)
 PREAMP_VB  = 200.0
 PREAMP_RP  = 100000.0
 PREAMP_RG  = 1000000.0
@@ -74,28 +74,72 @@ PREAMP_RK  = 1500.0
 PREAMP_CIN = 22e-9
 PREAMP_CK  = 22e-6
 
-# Derived
-_tau_hp = PREAMP_RG * PREAMP_CIN
-_k_hp = 2.0 * FS * _tau_hp
-_c_hp = (_k_hp - 1.0) / (_k_hp + 1.0)
-_hp_gain = (1.0 + _c_hp) / 2.0
 
-_R_CK = 1.0 / (2.0 * FS * PREAMP_CK)
-_G_rk = 1.0 / PREAMP_RK
-_G_ck = 1.0 / _R_CK
-_G_total = _G_rk + _G_ck
-_R_cathode_bypass = 1.0 / _G_total
-_gamma_k = _G_rk / _G_total
+def _compute_hp_coeffs(rg, cin, fs):
+    """Compute high-pass (coupling cap) filter coefficients."""
+    tau_hp = rg * cin
+    k_hp = 2.0 * fs * tau_hp
+    c_hp = (k_hp - 1.0) / (k_hp + 1.0)
+    hp_gain = (1.0 + c_hp) / 2.0
+    return c_hp, hp_gain
 
 
-def simulate_preamp_stage(audio_in, tube_name='12AX7', use_bypass=True, settle=2000):
-    """Simulate one preamp triode stage using WDF with Newton-Raphson."""
+def _compute_cathode_bypass(rk, ck, fs):
+    """Compute cathode bypass parallel impedance and gamma."""
+    R_CK = 1.0 / (2.0 * fs * ck)
+    G_rk = 1.0 / rk
+    G_ck = 1.0 / R_CK
+    G_total = G_rk + G_ck
+    R_cathode_bypass = 1.0 / G_total
+    gamma_k = G_rk / G_total
+    return R_cathode_bypass, gamma_k
+
+
+def simulate_preamp_stage(audio_in, tube_name='12AX7', use_bypass=True, settle=2000,
+                          rp=None, rk=None, ck=None, vb=None, rg=None):
+    """Simulate one preamp triode stage using WDF with Newton-Raphson.
+
+    Parameters
+    ----------
+    rp : float, optional
+        Plate resistor (ohms). Default 100k.
+    rk : float, optional
+        Cathode resistor (ohms). Default 1500.
+    ck : float or None, optional
+        Cathode bypass cap (farads). None means unbypassed. Default 22uF.
+    vb : float, optional
+        B+ plate supply voltage. Default 200V.
+    rg : float, optional
+        Grid leak resistor (ohms), sets input coupling. Default 1M.
+    """
     tube = TUBES[tube_name]
     n_total = len(audio_in)
     out_vplate = np.zeros(n_total)
 
-    R_p = PREAMP_RP
-    R_k = _R_cathode_bypass if use_bypass else PREAMP_RK
+    # Use per-stage values or defaults
+    R_p = rp if rp is not None else PREAMP_RP
+    R_k_raw = rk if rk is not None else PREAMP_RK
+    C_k = ck if ck is not None else PREAMP_CK
+    V_b = vb if vb is not None else PREAMP_VB
+    R_g = rg if rg is not None else PREAMP_RG
+
+    # If ck is explicitly None (unbypassed stage), override use_bypass
+    if ck is None and rk is not None:
+        # Caller explicitly set rk but not ck -- check if they want bypass
+        pass  # use_bypass as passed
+    # But if ck was explicitly passed as None, force unbypassed
+    # We detect this by checking the raw argument
+    # Actually, the caller should set use_bypass=False for unbypassed stages
+
+    # Compute coupling cap HP filter coefficients
+    c_hp, hp_gain = _compute_hp_coeffs(R_g, PREAMP_CIN, FS)
+
+    # Compute cathode bypass
+    if use_bypass and C_k is not None and C_k > 0:
+        R_cathode_bypass, gamma_k = _compute_cathode_bypass(R_k_raw, C_k, FS)
+        R_k = R_cathode_bypass
+    else:
+        R_k = R_k_raw
 
     prev_ip = 0.5e-3
     hp_y = 0.0
@@ -104,18 +148,18 @@ def simulate_preamp_stage(audio_in, tube_name='12AX7', use_bypass=True, settle=2
 
     for n in range(n_total):
         vin = audio_in[n]
-        hp_y = _c_hp * hp_y + _hp_gain * (vin - hp_x_prev)
+        hp_y = c_hp * hp_y + hp_gain * (vin - hp_x_prev)
         hp_x_prev = vin
         v_grid = hp_y
 
-        b_plate = PREAMP_VB
+        b_plate = V_b
         b_grid = v_grid
 
-        if use_bypass:
+        if use_bypass and C_k is not None and C_k > 0:
             b_rk = 0.0
             b_ck = z_ck
             bDiff = b_ck - b_rk
-            b_cathode = b_ck - _gamma_k * bDiff
+            b_cathode = b_ck - gamma_k * bDiff
         else:
             b_cathode = 0.0
 
@@ -152,7 +196,7 @@ def simulate_preamp_stage(audio_in, tube_name='12AX7', use_bypass=True, settle=2
         v_plate = (a_p + b_p) / 2.0
         out_vplate[n] = v_plate
 
-        if use_bypass:
+        if use_bypass and C_k is not None and C_k > 0:
             a_ck = b_k + b_cathode - b_ck
             z_ck = a_ck
 
@@ -405,53 +449,114 @@ class AmpSim:
 
     def __init__(self, preset='fender_deluxe'):
         presets = {
+            # ---------------------------------------------------------------
+            # Fender Deluxe Reverb (AB763)
+            # Vibrato channel: V1A -> V1B -> V4B (3 stages)
+            # Power: 2x 6V6GT (modeled as 6L6 -- no 6V6 Koren constants yet)
+            # Tube rectifier (GZ34) -> moderate sag
+            # ---------------------------------------------------------------
             'fender_deluxe': dict(
-                name='Fender Deluxe Reverb',
-                preamp_stages=2, preamp_tube='12AX7',
-                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
+                name='Fender Deluxe Reverb (AB763)',
+                preamp_stages=3, preamp_tube='12AX7',
+                preamp_vb=180.0,  # loaded preamp B+
+                stage_params=[
+                    {'rp': 100e3, 'rk': 1500, 'ck': 25e-6, 'rg': 1e6},    # V1A
+                    {'rp': 100e3, 'rk': 820,  'ck': 25e-6, 'rg': 1e6},    # V1B
+                    {'rp': 100e3, 'rk': 1500, 'ck': 25e-6, 'rg': 220e3},  # V4B
+                ],
+                interstage_atten=2.0,  # dB loss: avg of -0.83dB (V1A->V1B) and -3.25dB (V1B->V4B)
                 tone_bass=6, tone_mid=5, tone_treble=7,
-                power_tube='6L6', power_vb=400, power_rp=2000, power_rk=250,
-                power_sag=0.3, power_clip=200,
+                power_tube='6L6',  # TODO: should be 6V6 -- using 6L6 as closest available
+                power_vb=420, power_rp=3300, power_rk=0,  # fixed bias, OT 6.6k/2
+                power_sag=0.35, power_clip=189.0,  # tube rectifier -> moderate sag
                 cabinet='1x12_open',
                 input_gain=5, master_vol=5,
             ),
+            # ---------------------------------------------------------------
+            # Marshall JCM800 2203 (100W)
+            # V1B -> V1A (cold clipper, 10k unbypassed) -> V2A (3 gain stages)
+            # Power: 2x EL34, fixed bias, solid-state rectifier
+            # ---------------------------------------------------------------
             'marshall_jcm800': dict(
-                name='Marshall JCM800',
+                name='Marshall JCM800 2203 (100W)',
                 preamp_stages=3, preamp_tube='12AX7',
-                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
+                preamp_vb=305.0,
+                stage_params=[
+                    {'rp': 220e3, 'rk': 2700,  'ck': 0.68e-6, 'rg': 1e6},    # V1B: first stage
+                    {'rp': 220e3, 'rk': 10000, 'ck': None,     'rg': 470e3},  # V1A: cold clipper (unbypassed!)
+                    {'rp': 100e3, 'rk': 820,   'ck': None,     'rg': 1e6},    # V2A
+                ],
+                interstage_atten=4.7,  # dB loss: heavy due to 470k mixing network
                 tone_bass=5, tone_mid=8, tone_treble=6,
-                power_tube='EL34', power_vb=450, power_rp=1700, power_rk=200,
-                power_sag=0.2, power_clip=180,
+                power_tube='EL34', power_vb=480, power_rp=850, power_rk=0,  # fixed bias, OT 1.7k/2
+                power_sag=0.15, power_clip=216.0,  # SS rectifier -> tight
                 cabinet='4x12_closed',
                 input_gain=7, master_vol=6,
             ),
+            # ---------------------------------------------------------------
+            # Vox AC30 Top Boost (JMI)
+            # V1 -> V2a (2 gain stages + cathode follower, not counted)
+            # Power: 4x EL84 (modeled as EL34 -- no EL84 Koren constants yet)
+            # Cathode-biased, tube rectifier (GZ34), NO negative feedback
+            # ---------------------------------------------------------------
             'vox_ac30': dict(
-                name='Vox AC30',
+                name='Vox AC30 Top Boost (JMI)',
                 preamp_stages=2, preamp_tube='12AX7',
-                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
+                preamp_vb=275.0,
+                stage_params=[
+                    {'rp': 220e3, 'rk': 1500, 'ck': 25e-6,   'rg': 1e6},  # V1
+                    {'rp': 220e3, 'rk': 1800, 'ck': 25e-6,   'rg': 1e6},  # V2a
+                ],
+                interstage_atten=1.7,  # dB loss: 1M / (220k + 1M) = -1.7dB
                 tone_bass=7, tone_mid=4, tone_treble=8,
-                power_tube='EL34', power_vb=380, power_rp=1800, power_rk=220,
-                power_sag=0.25, power_clip=170,
-                cabinet='1x12_open',
+                power_tube='EL34',  # TODO: should be EL84 -- using EL34 as closest available
+                power_vb=330, power_rp=1750, power_rk=47,  # cathode-biased, OT 3.5k/2
+                power_sag=0.35, power_clip=178.2,  # tube rectifier, no NFB -> raw and open
+                cabinet='2x12_open',  # classic AC30 2x12 Celestion Blue
                 input_gain=6, master_vol=6,
             ),
+            # ---------------------------------------------------------------
+            # Mesa Boogie Dual Rectifier (high-gain channel)
+            # 5 stages: V1a -> V1b -> V2a (39k cold clipper) -> V2b -> V3
+            # Power: 2x 6L6GC, switchable tube/SS rectifier (tube mode here)
+            # ---------------------------------------------------------------
             'mesa_dual_rec': dict(
-                name='Mesa Dual Rectifier',
-                preamp_stages=3, preamp_tube='12AX7',
-                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
+                name='Mesa Boogie Dual Rectifier',
+                preamp_stages=5, preamp_tube='12AX7',
+                preamp_vb=365.0,
+                stage_params=[
+                    {'rp': 220e3, 'rk': 1500,  'ck': 0.68e-6, 'rg': 68e3},   # V1a
+                    {'rp': 100e3, 'rk': 1800,  'ck': 1e-6,    'rg': 475e3},  # V1b
+                    {'rp': 100e3, 'rk': 39000, 'ck': None,     'rg': 1e6},    # V2a: cold clipper (Soldano SLO technique)
+                    {'rp': 330e3, 'rk': 1500,  'ck': 0.68e-6, 'rg': 1e6},    # V2b
+                    {'rp': 100e3, 'rk': 820,   'ck': 25e-6,   'rg': 1e6},    # V3
+                ],
+                interstage_atten=2.0,  # dB loss: avg of coupling networks
                 tone_bass=8, tone_mid=3, tone_treble=7,
-                power_tube='6L6', power_vb=420, power_rp=1900, power_rk=230,
-                power_sag=0.4, power_clip=190,
+                power_tube='6L6', power_vb=460, power_rp=950, power_rk=0,  # fixed bias, OT 1.9k/2
+                power_sag=0.40, power_clip=207.0,  # tube rectifier mode -> spongy
                 cabinet='4x12_closed',
                 input_gain=8, master_vol=5,
             ),
+            # ---------------------------------------------------------------
+            # Fender Twin Reverb (AB763)
+            # Same 3-stage topology as Deluxe, but much higher B+ (270V vs 180V)
+            # and 4x 6L6GC power tubes -> massive clean headroom
+            # Solid-state rectifier -> tight, no sag
+            # ---------------------------------------------------------------
             'fender_twin': dict(
-                name='Fender Twin Clean',
-                preamp_stages=1, preamp_tube='12AX7',
-                interstage_atten=0.35,  # real coupling network: Rgrid/(Rp+Rgrid) = -0.35dB
+                name='Fender Twin Reverb (AB763)',
+                preamp_stages=3, preamp_tube='12AX7',
+                preamp_vb=270.0,  # much higher than Deluxe's 180V -> more headroom
+                stage_params=[
+                    {'rp': 100e3, 'rk': 1500, 'ck': 25e-6, 'rg': 1e6},    # V1A
+                    {'rp': 100e3, 'rk': 820,  'ck': 25e-6, 'rg': 1e6},    # V1B
+                    {'rp': 100e3, 'rk': 1500, 'ck': 25e-6, 'rg': 220e3},  # V4B
+                ],
+                interstage_atten=2.0,  # dB loss: same coupling topology as Deluxe
                 tone_bass=5, tone_mid=6, tone_treble=6,
-                power_tube='6L6', power_vb=400, power_rp=2000, power_rk=250,
-                power_sag=0.15, power_clip=250,
+                power_tube='6L6', power_vb=460, power_rp=1000, power_rk=0,  # fixed bias, OT 2k/2
+                power_sag=0.15, power_clip=248.4,  # SS rectifier -> super tight and clean
                 cabinet='2x12_open',
                 input_gain=3, master_vol=5,
             ),
@@ -464,6 +569,8 @@ class AmpSim:
         self.name = p['name']
         self.preamp_stages = p['preamp_stages']
         self.preamp_tube = p['preamp_tube']
+        self.preamp_vb = p.get('preamp_vb', PREAMP_VB)
+        self.stage_params = p.get('stage_params', None)
         self.interstage_atten = p['interstage_atten']
         self.tone_bass = p['tone_bass']
         self.tone_mid = p['tone_mid']
@@ -511,16 +618,30 @@ class AmpSim:
         gain_scale = self.GAIN_TABLE.get(self.input_gain, 8.0)
         x = audio_in * gain_scale
 
-        # Preamp stages
+        # Preamp stages with per-stage component values
         interstage_lin = 10.0 ** (self.interstage_atten / 20.0)
 
         for stage in range(self.preamp_stages):
+            # Get per-stage params if available
+            sp = {}
+            if self.stage_params and stage < len(self.stage_params):
+                sp = self.stage_params[stage]
+
+            stage_rp = sp.get('rp', None)
+            stage_rk = sp.get('rk', None)
+            stage_ck = sp.get('ck', PREAMP_CK)
+            stage_rg = sp.get('rg', None)
+            # Determine bypass: use bypass if Ck is present (not None)
+            use_bypass = (stage_ck is not None)
+
             vplate, vp_dc = simulate_preamp_stage(
-                x, tube_name=self.preamp_tube, use_bypass=True, settle=settle)
+                x, tube_name=self.preamp_tube, use_bypass=use_bypass,
+                settle=settle, rp=stage_rp, rk=stage_rk, ck=stage_ck,
+                vb=self.preamp_vb, rg=stage_rg)
             ac_out = vplate - vp_dc
 
             if stage < self.preamp_stages - 1:
-                # Interstage coupling: minimal attenuation (real amps ~1dB)
+                # Interstage coupling: attenuation from Rp/Rg voltage divider
                 # Grid current in the next stage naturally limits the signal
                 x = ac_out / interstage_lin
             else:
