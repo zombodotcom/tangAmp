@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module name="tangamp_selftest" Register="166" Alu="15" Lut="481" T_Register="475(166)" T_Alu="472(15)" T_Lut="13145(481)" T_MULT18X18="1(0)" T_MULTALU36X18="8(0)" T_Bsram="46(0)">
+ <SubModule name="triode" Register="309" Alu="457" Lut="12664" MULT18X18="1" MULTALU36X18="8" Bsram="46" T_Register="309(309)" T_Alu="457(457)" T_Lut="12664(12664)" T_MULT18X18="1(1)" T_MULTALU36X18="8(8)" T_Bsram="46(46)"/>
+</Module>

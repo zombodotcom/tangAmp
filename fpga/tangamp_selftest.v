@@ -59,14 +59,22 @@ end
 
 reg [6:0] sine_idx;
 reg signed [31:0] audio_in;
+reg [15:0] settle_cnt;
+localparam SETTLE_SAMPLES = 16'd11000;  // silence for DC settling
 
 always @(posedge clk_27m or negedge rst_n) begin
     if (!rst_n) begin
         sine_idx <= 0;
         audio_in <= 0;
+        settle_cnt <= 0;
     end else if (sample_en) begin
-        audio_in <= sine_table[sine_idx];
-        sine_idx <= (sine_idx >= 7'd107) ? 0 : sine_idx + 1;
+        if (settle_cnt < SETTLE_SAMPLES) begin
+            audio_in <= 0;  // silence during settling
+            settle_cnt <= settle_cnt + 1;
+        end else begin
+            audio_in <= sine_table[sine_idx];
+            sine_idx <= (sine_idx >= 7'd107) ? 0 : sine_idx + 1;
+        end
     end
 end
 
