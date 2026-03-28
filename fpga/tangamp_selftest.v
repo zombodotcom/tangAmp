@@ -2,8 +2,9 @@
 // tangamp_selftest.v
 // Self-test top-level for Tang Nano 20K — no external ADC/DAC needed.
 //
-// Generates a 440Hz sine internally, processes through WDF triode,
-// and displays output level on the 6 onboard LEDs as a VU meter.
+// Full signal chain:
+//   440Hz sine -> triode_engine (2 stages) -> tone_stack_iir -> cabinet_fir
+//   -> VU meter LEDs
 //
 // LED[0] = heartbeat (proves clock running)
 // LED[1:5] = output level (VU meter, 5 segments)
@@ -28,7 +29,7 @@ always @(posedge clk_27m) begin
     rst_n <= rst_sync[1];
 end
 
-// ── Sample rate clock (48kHz from 27MHz) ───��─────────────────────────────
+// ── Sample rate clock (48kHz from 27MHz) ────────────────────────────────
 // 27MHz / 562 = 48043Hz (close enough to 48kHz)
 reg [9:0] div_cnt;
 reg sample_en;
@@ -78,27 +79,58 @@ always @(posedge clk_27m or negedge rst_n) begin
     end
 end
 
-// ── WDF Triode Stage ────────────────���─────────────────────���──────────────
-wire signed [31:0] audio_out;
-wire out_valid;
+// ── Stage 1: Triode Engine (2 cascaded stages, shared LUTs) ─────────────
+wire signed [31:0] triode_out;
+wire triode_valid;
 
-wdf_triode_wdf triode (
+triode_engine #(
+    .NUM_STAGES  (2),
+    .ATTEN_SHIFT (5)
+) triode (
     .clk       (clk_27m),
     .rst_n     (rst_n),
     .sample_en (sample_en),
     .audio_in  (audio_in),
-    .audio_out (audio_out),
-    .out_valid (out_valid)
+    .audio_out (triode_out),
+    .out_valid (triode_valid)
 );
 
-// ── VU Meter (output level → LED bar) ─────────────────���──────────────────
-// Take absolute value of output, map to 5 LED thresholds
+// ── Stage 2: Tone Stack (3-band biquad EQ) ──────────────────────────────
+wire signed [31:0] tone_out;
+wire tone_valid;
+
+tone_stack_iir tone (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (triode_valid),
+    .audio_in  (triode_out),
+    .audio_out (tone_out),
+    .out_valid (tone_valid)
+);
+
+// ── Stage 3: Cabinet FIR ────────────────────────────────────────────────
+wire signed [31:0] cab_out;
+wire cab_valid;
+
+cabinet_fir #(
+    .N_TAPS (129)
+) cabinet (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (tone_valid),
+    .audio_in  (tone_out),
+    .audio_out (cab_out),
+    .out_valid (cab_valid)
+);
+
+// ── VU Meter (output level -> LED bar) ──────────────────────────────────
+// Take absolute value of final output, map to 5 LED thresholds
 reg [31:0] abs_out;
 reg [4:0] vu;
 
 always @(posedge clk_27m) begin
-    if (out_valid) begin
-        abs_out <= (audio_out[31]) ? -audio_out : audio_out;
+    if (cab_valid) begin
+        abs_out <= (cab_out[31]) ? -cab_out : cab_out;
         // Thresholds in Q16.16 (approximately 1V, 3V, 8V, 15V, 25V)
         vu[0] <= (abs_out > 32'd65536);      // > 1V
         vu[1] <= (abs_out > 32'd196608);     // > 3V
@@ -125,7 +157,7 @@ always @(posedge clk_27m or negedge rst_n) begin
     end
 end
 
-// ── LED output (active low on Tang Nano 20K) ──────���──────────────────────
+// ── LED output (active low on Tang Nano 20K) ────────────────────────────
 assign led[0] = ~hb;
 assign led[1] = ~vu[0];
 assign led[2] = ~vu[1];
