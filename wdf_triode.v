@@ -1,4 +1,8 @@
 // ============================================================================
+// DEPRECATED - kept for reference only.
+// The working WDF triode is in wdf_triode_wdf.v (proper WDF tree with
+// Newton-Raphson iteration at the root).
+// ============================================================================
 // wdf_triode.v
 // Single Common-Cathode Triode Stage — Direct Load-Line Model
 //

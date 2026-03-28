@@ -1,4 +1,8 @@
 // ============================================================================
+// DEPRECATED - kept for reference only.
+// The real power amp is now handled by triode_engine.v with proper WDF
+// modeling. This simplified gain + soft clip version is unused.
+// ============================================================================
 // power_amp_stage.v
 // Simplified power amp for FPGA: gain + soft clip.
 //

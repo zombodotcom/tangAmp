@@ -1,4 +1,7 @@
 // ============================================================================
+// DEPRECATED - kept for reference only.
+// The working testbench is wdf_triode_wdf_tb.v.
+// ============================================================================
 // wdf_triode_tb.v
 // Testbench for the WDF triode stage
 //

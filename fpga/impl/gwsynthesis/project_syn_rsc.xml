@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Module name="tangamp_selftest" Register="166" Alu="15" Lut="449" T_Register="832(166)" T_Alu="594(15)" T_Lut="14282(449)" T_MULT18X18="1(0)" T_MULTALU36X18="13(0)" T_Bsram="46(0)" T_Ssram="149(0)">
- <SubModule name="triode" Register="407" Alu="441" Lut="13211" MULT18X18="1" MULTALU36X18="8" Bsram="46" Ssram="45" T_Register="407(407)" T_Alu="441(441)" T_Lut="13211(13211)" T_MULT18X18="1(1)" T_MULTALU36X18="8(8)" T_Bsram="46(46)" T_Ssram="45(45)"/>
- <SubModule name="tone" Register="99" Alu="92" Lut="48" MULTALU36X18="4" Ssram="32" T_Register="99(99)" T_Alu="92(92)" T_Lut="48(48)" T_MULTALU36X18="4(4)" T_Ssram="32(32)"/>
- <SubModule name="power_amp" Register="54" Lut="48" T_Register="54(54)" T_Lut="48(48)"/>
- <SubModule name="cabinet" Register="106" Alu="46" Lut="526" MULTALU36X18="1" Ssram="72" T_Register="106(106)" T_Alu="46(46)" T_Lut="526(526)" T_MULTALU36X18="1(1)" T_Ssram="72(72)"/>
-</Module>
