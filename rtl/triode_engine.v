@@ -423,8 +423,10 @@ always @(posedge clk or negedge rst_n) begin
             f1_val = ip_est - ip_model;
             f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
-            // J11 ≈ 1 (dIp/dVpk dropped to save BSRAM — negligible effect on convergence)
-            j11 = ONE_FP;
+            // J11 ≈ 2 (constant approximation; dIp/dVpk LUT dropped to fit BSRAM)
+            // True J11 = 1 + dIp/dVpk * RPK ≈ 1.5-2.5 for 12AX7 at typical operating points.
+            // J11=1 diverges because step=f1 overshoots; J11=2 halves the step, converging.
+            j11 = ONE_FP <<< 1;
 
             // J12 = dIp/dVgk * Rg
             temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;

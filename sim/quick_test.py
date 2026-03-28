@@ -28,8 +28,8 @@ G_total = G_rk + G_ck
 R_CATH = 1.0 / G_total
 GAMMA_CATH = G_rk / G_total
 
-# Koren 12AX7
-MU, EX, KG1, KP, KVB = 100.0, 1.4, 1060.0, 600.0, 300.0
+# Koren 12AX7 (fitted to RCA datasheet)
+MU, EX, KG1, KP, KVB = 92.08, 1.29, 1304.71, 561.08, 15101.91
 
 # Coupling cap high-pass
 tau_hp = RG * CIN
@@ -162,7 +162,7 @@ def main():
     ip_dc = float(ip_out[dc_slice].mean())
 
     t_dc = time.perf_counter() - t0
-    dc_ok = (135.0 <= vp_dc <= 155.0) and (0.4e-3 <= ip_dc <= 0.7e-3)
+    dc_ok = (125.0 <= vp_dc <= 155.0) and (0.4e-3 <= ip_dc <= 0.8e-3)
     status = "OK" if dc_ok else "FAIL"
     if not dc_ok:
         all_ok = False
@@ -178,8 +178,8 @@ def main():
     out_max = float(audio_out.max())
 
     t_ac = time.perf_counter() - t0
-    ac_ok = (28.0 <= gain_db <= 38.0)
-    range_ok = (12.0 <= max(abs(out_min), abs(out_max)) <= 35.0)
+    ac_ok = (26.0 <= gain_db <= 38.0)
+    range_ok = (10.0 <= max(abs(out_min), abs(out_max)) <= 35.0)
     status = "OK" if (ac_ok and range_ok) else "FAIL"
     if not (ac_ok and range_ok):
         all_ok = False

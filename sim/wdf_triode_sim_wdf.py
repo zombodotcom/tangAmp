@@ -63,7 +63,7 @@ GAMMA_CATH = G_rk / G_total     # scattering coefficient
 # Koren 12AX7 Triode Model
 # =============================================================================
 
-MU, EX, KG1, KP, KVB = 100.0, 1.4, 1060.0, 600.0, 300.0
+MU, EX, KG1, KP, KVB = 92.08, 1.29, 1304.71, 561.08, 15101.91  # fitted to RCA datasheet
 
 def koren_ip(vpk, vgk):
     """Plate current Ip in amps."""

@@ -25,11 +25,11 @@ parameter DIP_SCALE   = 100000;  // dIp/dVgk * 100000 = 16-bit int
 parameter DIP_VPK_SCALE = 10000000;  // dIp/dVpk * 10000000 = 16-bit int
 
 // 12AX7 tube constants (for reference)
-parameter real MU_12AX7  = 100.0;
-parameter real EX_12AX7  = 1.4;
-parameter real KG1_12AX7 = 1060.0;
-parameter real KP_12AX7  = 600.0;
-parameter real KVB_12AX7 = 300.0;
+parameter real MU_12AX7  = 92.08;
+parameter real EX_12AX7  = 1.29;
+parameter real KG1_12AX7 = 1304.71;
+parameter real KP_12AX7  = 561.08;
+parameter real KVB_12AX7 = 15101.91;
 
 // 6L6 tube constants (for reference)
 parameter real MU_6L6  = 10.11;
