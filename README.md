@@ -204,19 +204,67 @@ Constants curve-fitted to RCA datasheet data using `fit_tube_model.py`:
 - [chowdsp_wdf](https://github.com/Chowdhury-DSP/chowdsp_wdf) -- C++ WDF library (used for validation)
 - [RT-WDF](https://github.com/RT-WDF/rt-wdf_lib) -- R-type adaptor support
 
-## Known Limitations (Honest)
+## What's Wrong and What Needs Fixing
 
-- **Interstage attenuation** (12dB) is tuned empirically, not derived from circuit analysis
-- **Grid current Vgk clamp** at 2V is a simplification — real coupling cap blocking should limit this
-- **Cabinet IR is synthetic** — modeled from Thiele-Small parameters, not measured from a real speaker
-- **Output transformer saturation** uses piecewise linear approximation, not magnetic hysteresis
-- **Koren model** is 10.7% mean error vs 12AX7 datasheet (27% max at cutoff region)
-- **No hardware testing yet** — all validation is simulation-only
-- **No oversampling** — 48kHz with tube nonlinearity causes some aliasing
-- **EL34/300B constants** diverge 50-100% at extreme operating points
-- **Coupling cap blocking**, **Miller effect**, **power supply sag**, **noise**, **tremolo** exist as Python models but are NOT in the Verilog chain
+This section is honest about every shortcut. See `STATUS.md` for the full breakdown.
 
-See `STATUS.md` for detailed breakdown of what's real vs faked.
+### Critical (breaks the sound)
+
+1. **Interstage coupling is faked.** We use an arbitrary 12dB attenuation between stages instead of modeling the actual coupling network (22nF cap + 1M grid resistor + grid current loading). The physics for this exists in `coupling_cap_blocking.py` — it needs to REPLACE the fake attenuation, not sit as a separate demo. This is the root cause of the static/artifacts in high-gain demos.
+
+2. **Grid current is bolted on wrong.** We compute Ig AFTER Newton converges and adjust the output. The correct way (already in `grid_current.py`) is a 2x2 Newton solver where Ip and Ig are solved simultaneously so grid current affects the operating point during iteration, not after.
+
+3. **Fitted Koren constants break Verilog.** The curve-fitted 12AX7 (10.7% error vs 44.8% original) has kvb=15102 which causes fixed-point divergence in the Verilog Newton solver. We're still using the worse original constants (kvb=300) for the FPGA. Need to debug the Q16.16 overflow with large kvb values.
+
+### Medium (sounds wrong but doesn't break)
+
+4. **Cabinet IR is synthetic.** We modeled it from Thiele-Small parameters instead of using a real measured impulse response. There are hundreds of free measured cab IRs available (Celestion, OwnHammer free packs, Wilkinson Audio, GuitarHack, Seacow Cabs). Just download one and load it as the FIR taps.
+
+5. **Output transformer not validated.** It's a bandpass + piecewise soft clip. Needs SPICE comparison against an actual transformer model to verify the frequency response and saturation curves are realistic.
+
+6. **NFB loop not validated.** We subtract a scaled output signal but haven't verified loop gain, phase margin, or stability matches a real amp schematic. Should compare against SPICE sim of a Fender Deluxe feedback network.
+
+7. **Amp preset values are guessed.** The gain/master/attenuation numbers for each preset (Fender, Marshall, Vox, Mesa) were made up, not derived from actual amp schematics. Real schematics are available online for all of these.
+
+### Minor (refinements)
+
+8. **No oversampling.** 48kHz with hard tube nonlinearity creates aliasing. 2x oversampling (96kHz internal, decimate to 48kHz output) would clean this up. We have 380 spare clocks — enough for a simple 2x decimation filter.
+
+9. **EL34/300B Koren constants** diverge 50-100% at extreme operating points. Need curve-fitting like we did for 12AX7/12AU7.
+
+10. **Python-only features not in Verilog:** coupling cap blocking, Miller effect, power supply sag, noise, tremolo, presence/resonance. Each has a Verilog spec document (`*_verilog_spec.txt`) but hasn't been implemented in RTL yet.
+
+## Development Roadmap (What To Do Next)
+
+### Phase 1: Fix the fakes (make it correct)
+- [ ] Replace 12dB attenuation with proper WDF coupling cap model between stages
+- [ ] Move grid current inside Newton iteration (2x2 Jacobian in Verilog)
+- [ ] Debug fitted Koren constants (kvb=15102) in Q16.16 fixed-point
+- [ ] Download and integrate real measured cabinet IR (e.g. Celestion V30 free IR)
+- [ ] Validate output transformer against ngspice transformer model
+- [ ] Validate NFB loop against ngspice Fender Deluxe feedback network
+- [ ] Derive preset values from actual amp schematics (Fender 5E3, Marshall JCM800, Vox AC30)
+
+### Phase 2: Add the missing physics to Verilog
+- [ ] Miller effect LPF between stages (~12 clocks for 3 stages, spec in `miller_verilog_spec.txt`)
+- [ ] Power supply sag modulating VB (~3 clocks, spec in `sag_verilog_spec.txt`)
+- [ ] 2x oversampling with decimation filter
+- [ ] Curve-fit EL34/300B Koren constants
+
+### Phase 3: Hardware bring-up
+- [ ] Flash self-test bitstream, verify LEDs
+- [ ] Wire PCM1808 ADC + PCM5102 DAC
+- [ ] Synthesize full I2S chain (`tangamp_top.v`)
+- [ ] Guitar in → FPGA → headphones out
+- [ ] A/B test: FPGA output vs Python sim with same recorded input
+- [ ] Add potentiometers via SPI ADC (MCP3008) for knob controls
+
+### Phase 4: Polish
+- [ ] Noise modeling in Verilog (LFSR + 120Hz hum)
+- [ ] Bias tremolo effect
+- [ ] Presence/resonance controls via NFB shaping
+- [ ] Multiple cabinet IR profiles (switchable)
+- [ ] UART debug output for monitoring internal signals
 
 ## License
 

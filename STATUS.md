@@ -61,6 +61,22 @@ These exist as standalone scripts with demos but are NOT in the FPGA signal chai
 3. Validate NFB loop against SPICE
 4. Hardware A/B test: FPGA output vs Python sim with same input signal
 
+### Free measured cabinet IRs (use instead of synthetic):
+- Celestion official free IRs: https://www.celestionplus.com/free-impulse-responses/
+- OwnHammer free pack: https://www.ownhammer.com/free/
+- Wilkinson Audio free IRs: https://wilkinsonaudio.com/collections/free
+- GuitarHack free pack (V30, Greenback): Google "guitarhack free cabinet impulse"
+- Seacow Cabs free: https://seacowcabs.com/free-ir/
+- RedWirez free samples: https://www.redwirez.com/free-ir
+- Any standard .wav IR file can be loaded — just resample to 48kHz, truncate to 129-256 taps, quantize to Q1.15, write as hex
+
+### Real amp schematics (derive preset values from these):
+- Fender Deluxe Reverb AB763: https://www.thetubestore.com/lib/thetubestore/schematics/Fender-Deluxe-Reverb-AB763-Schematic.pdf
+- Marshall JCM800 2203: widely available, search "marshall jcm800 2203 schematic"
+- Vox AC30: https://www.thetubestore.com/lib/thetubestore/schematics/Vox-AC30-Schematic.pdf
+- Mesa Dual Rectifier: harder to find, but component values are documented in forums
+- Fender Twin Reverb: https://www.thetubestore.com/lib/thetubestore/schematics/Fender-Twin-Reverb-AA769-Schematic.pdf
+
 ## Key Files for Development
 
 ### Core Verilog (the product):
