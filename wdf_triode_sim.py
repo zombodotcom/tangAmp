@@ -160,8 +160,16 @@ if HAS_NUMBA:
 
             ip_prev = ip
 
-            b_p = a_p - 2.0 * R_p * ip
-            b_k = a_k + 2.0 * R_k * ip
+            # Grid current: when Vgk > 0, grid draws current
+            vgk_final = a_g - a_k - R_k * ip
+            if vgk_final > 0:
+                ig = 0.002 * vgk_final ** 1.5
+            else:
+                ig = 0.0
+            ip_total = ip + ig
+
+            b_p = a_p - 2.0 * R_p * ip_total
+            b_k = a_k + 2.0 * R_k * ip_total
             vp = (a_p + b_p) / 2.0
 
             # Downward pass: update capacitor state

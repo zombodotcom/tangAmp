@@ -180,8 +180,18 @@ if HAS_NUMBA:
 
             prev_ip = Ip
 
-            b_p = a_p - 2.0 * R_p * Ip
-            b_k = a_k + 2.0 * R_k * Ip
+            # Grid current: when Vgk > 0, grid draws current
+            # Ig = 0.002 * max(0, Vgk)^1.5 (Langmuir-Child law)
+            Vgk_final = a_g - a_k - R_k * Ip
+            if Vgk_final > 0:
+                Ig = 0.002 * Vgk_final ** 1.5
+            else:
+                Ig = 0.0
+            Ip_total = Ip + Ig
+
+            b_p = a_p - 2.0 * R_p * Ip_total
+            b_g = a_g - 2.0 * RG * Ig  # grid no longer fully reflects
+            b_k = a_k + 2.0 * R_k * Ip_total
 
             # Downward pass: update capacitor state
             a_ck = b_k + b_cathode - b_ck
@@ -343,10 +353,18 @@ else:
 
         prev_ip = Ip
 
+        # Grid current: when Vgk > 0, grid draws current
+        Vgk_final = a_g - a_k - R_k * Ip
+        if Vgk_final > 0:
+            Ig = 0.002 * Vgk_final ** 1.5
+        else:
+            Ig = 0.0
+        Ip_total = Ip + Ig
+
         # Reflected waves from triode back to subtrees
-        b_p = a_p - 2.0 * R_p * Ip
-        b_g = a_g
-        b_k = a_k + 2.0 * R_k * Ip
+        b_p = a_p - 2.0 * R_p * Ip_total
+        b_g = a_g - 2.0 * RG * Ig
+        b_k = a_k + 2.0 * R_k * Ip_total
 
         # Extract tube node voltages
         v_plate   = (a_p + b_p) / 2.0

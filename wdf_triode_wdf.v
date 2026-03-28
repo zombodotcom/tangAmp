@@ -332,13 +332,46 @@ always @(posedge clk or negedge rst_n) begin
             end
         end
 
-        // ── Compute output ──────────────────────────────────────────────
+        // ── Compute output with grid current ────────────────────────────
         // v_plate = VB - RP * Ip
-        // AC output = v_plate - vp_dc
+        // Grid current: when Vgk > 0, Ig = 0.002 * Vgk^1.5
+        // This limits positive grid swing, preventing runaway in cascaded stages
+        // Piecewise linear approximation of x^1.5:
+        //   0.0-0.5V: Ig ≈ 0.001 * Vgk (linear)
+        //   0.5-1.0V: Ig ≈ 0.0005 + 0.002 * (Vgk - 0.5)
+        //   1.0-2.0V: Ig ≈ 0.0015 + 0.003 * (Vgk - 1.0)
+        // Effect: Ip_total = Ip + Ig, which increases voltage drop across Rp
         ST_OUTPUT: begin
-            // v_plate = VB - RP * ip_est
-            temp64 = $signed(RP_INT) * $signed(ip_est);
-            audio_out <= (VB_FP - temp64[31:0]) - vp_dc;
+            // Compute Vgk from converged state
+            // vgk_est was computed in ST_NR_ADDR (last iteration value)
+            // Grid current only flows when Vgk > 0
+            begin
+                reg signed [FP_WIDTH-1:0] ig_est;
+                reg signed [FP_WIDTH-1:0] ip_total;
+
+                if (vgk_est > 0) begin
+                    // Piecewise linear Ig approximation in Q16.16
+                    // Vgk is in Q16.16, 0.5V = 32768, 1.0V = 65536
+                    if (vgk_est < 32'sd32768) begin
+                        // 0-0.5V: Ig = Vgk * 0.001 ≈ Vgk >> 10
+                        ig_est = vgk_est >>> 10;
+                    end else if (vgk_est < 32'sd65536) begin
+                        // 0.5-1.0V: Ig = 32 + (Vgk-32768) >> 9
+                        ig_est = 32'sd32 + ((vgk_est - 32'sd32768) >>> 9);
+                    end else begin
+                        // >1.0V: Ig = 96 + (Vgk-65536) >> 8
+                        ig_est = 32'sd96 + ((vgk_est - 32'sd65536) >>> 8);
+                    end
+                    ip_total = ip_est + ig_est;
+                end else begin
+                    ig_est = 0;
+                    ip_total = ip_est;
+                end
+
+                // v_plate = VB - RP * (Ip + Ig)
+                temp64 = $signed(RP_INT) * $signed(ip_total);
+                audio_out <= (VB_FP - temp64[31:0]) - vp_dc;
+            end
             out_valid <= 1'b1;
 
             // Save converged Ip for next sample's initial guess

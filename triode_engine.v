@@ -394,10 +394,30 @@ always @(posedge clk or negedge rst_n) begin
             end
         end
 
-        // ── Compute stage output ───────────────────────────────────────
+        // ── Compute stage output with grid current ──────────────────────
         ST_OUTPUT: begin
-            temp64 = rp_active * $signed(ip_est);
-            stage_out <= (vb_active - temp64[31:0]) - vp_dc;
+            // Grid current: when Vgk > 0, Ig adds to total plate current
+            // This limits positive grid swing in cascaded stages
+            begin
+                reg signed [FP_WIDTH-1:0] ig_est;
+                reg signed [FP_WIDTH-1:0] ip_total;
+
+                if (vgk_est > 0) begin
+                    if (vgk_est < 32'sd32768)
+                        ig_est = vgk_est >>> 10;
+                    else if (vgk_est < 32'sd65536)
+                        ig_est = 32'sd32 + ((vgk_est - 32'sd32768) >>> 9);
+                    else
+                        ig_est = 32'sd96 + ((vgk_est - 32'sd65536) >>> 8);
+                    ip_total = ip_est + ig_est;
+                end else begin
+                    ig_est = 0;
+                    ip_total = ip_est;
+                end
+
+                temp64 = rp_active * $signed(ip_total);
+                stage_out <= (vb_active - temp64[31:0]) - vp_dc;
+            end
 
             ip_prev <= ip_est;
 
