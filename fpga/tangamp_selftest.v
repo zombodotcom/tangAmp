@@ -3,8 +3,10 @@
 // Self-test top-level for Tang Nano 20K — no external ADC/DAC needed.
 //
 // Full signal chain:
-//   440Hz sine -> triode_engine (2 stages) -> tone_stack_iir -> cabinet_fir
-//   -> VU meter LEDs
+//   440Hz sine - nfb -> triode_engine (2 stages) -> tone_stack_iir
+//   -> output_transformer -> cabinet_fir -> VU meter LEDs
+//                                              |
+//                                         nfb_register <-
 //
 // LED[0] = heartbeat (proves clock running)
 // LED[1:5] = output level (VU meter, 5 segments)
@@ -79,6 +81,17 @@ always @(posedge clk_27m or negedge rst_n) begin
     end
 end
 
+// ── Negative Feedback Subtraction ────────────────────────────────────────
+wire signed [31:0] nfb_signal;
+reg  signed [31:0] triode_input;
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n)
+        triode_input <= 0;
+    else if (sample_en)
+        triode_input <= audio_in - nfb_signal;
+end
+
 // ── Stage 1: Triode Engine (2 cascaded stages, shared LUTs) ─────────────
 wire signed [31:0] triode_out;
 wire triode_valid;
@@ -91,7 +104,7 @@ triode_engine #(
     .clk       (clk_27m),
     .rst_n     (rst_n),
     .sample_en (sample_en),
-    .audio_in  (audio_in),
+    .audio_in  (triode_input),
     .audio_out (triode_out),
     .out_valid (triode_valid)
 );
@@ -109,8 +122,20 @@ tone_stack_iir tone (
     .out_valid (tone_valid)
 );
 
-// ── Stage 3: Cabinet FIR ────────────────────────────────────────────────
-// (Power amp is now the final stage inside triode_engine with POWER_AMP=1)
+// ── Stage 3: Output Transformer (HPF 60Hz + LPF 8kHz + soft clip) ──────
+wire signed [31:0] xf_out;
+wire xf_valid;
+
+output_transformer xformer (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (tone_valid),
+    .audio_in  (tone_out),
+    .audio_out (xf_out),
+    .out_valid (xf_valid)
+);
+
+// ── Stage 4: Cabinet FIR ────────────────────────────────────────────────
 wire signed [31:0] cab_out;
 wire cab_valid;
 
@@ -119,10 +144,21 @@ cabinet_fir #(
 ) cabinet (
     .clk       (clk_27m),
     .rst_n     (rst_n),
-    .sample_en (tone_valid),
-    .audio_in  (tone_out),
+    .sample_en (xf_valid),
+    .audio_in  (xf_out),
     .audio_out (cab_out),
     .out_valid (cab_valid)
+);
+
+// ── Negative Feedback Register ──────────────────────────────────────────
+nfb_register #(
+    .NFB_SHIFT (3)  // moderate feedback (~Marshall)
+) nfb (
+    .clk        (clk_27m),
+    .rst_n      (rst_n),
+    .fb_in      (cab_out),
+    .fb_valid   (cab_valid),
+    .nfb_signal (nfb_signal)
 );
 
 // ── VU Meter (output level -> LED bar) ──────────────────────────────────

@@ -3,6 +3,8 @@ add_file tangamp_selftest.v
 add_file ../triode_engine.v
 add_file ../wdf_triode_wdf.v
 add_file ../tone_stack_iir.v
+add_file ../output_transformer.v
+add_file ../nfb_register.v
 add_file ../cabinet_fir.v
 add_file ../ip_lut.hex
 add_file ../dip_dvgk_lut.hex
