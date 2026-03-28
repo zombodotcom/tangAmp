@@ -1,0 +1,140 @@
+Output Transformer -- Verilog Implementation Spec
+==================================================
+
+Overview
+--------
+The output transformer model consists of two parts:
+  1. Linear bandpass filter (HPF 60Hz + LPF 8kHz)
+  2. Frequency-dependent soft saturation
+
+Both fit naturally into the existing tangAmp pipeline architecture.
+Total cost: ~10 extra clock cycles per sample.
+
+
+Part 1: Bandpass Filter (2 biquads)
+------------------------------------
+Same architecture as the tone_stack_iir.v biquads.
+
+Biquad 1: 2nd-order Butterworth highpass at 60Hz
+  - Models primary inductance rolloff
+  - At fs=48kHz, the coefficients are:
+    w0 = 2*pi*60/48000 = 0.007854
+    alpha = sin(w0)/(2*0.7071) = 0.005553
+    b0/a0 = 0.99445, b1/a0 = -1.98890, b2/a0 = 0.99445
+    a1/a0 = -1.98889, a2/a0 = 0.98891
+
+Biquad 2: 2nd-order Butterworth lowpass at 8kHz
+  - Models leakage inductance + winding capacitance rolloff
+  - At fs=48kHz, the coefficients are:
+    w0 = 2*pi*8000/48000 = 1.04720
+    alpha = sin(w0)/(2*0.7071) = 0.61360
+    b0/a0 = 0.16618, b1/a0 = 0.33236, b2/a0 = 0.16618
+    a1/a0 = -0.47440, a2/a0 = 0.13912
+
+Q16.16 fixed-point representation:
+  - Coefficients fit in Q2.14 (all < 2.0) -- store as 16-bit
+  - State variables in Q16.16 (same as rest of pipeline)
+  - Each biquad: 5 multiplies + 4 adds = ~5 clocks in pipeline
+
+Implementation: Direct Form II Transposed
+  out = b0*x + z1
+  z1  = b1*x - a1*out + z2
+  z2  = b2*x - a2*out
+
+Cost: 2 biquads x 5 clocks = 10 clocks
+  (Can pipeline both biquads in 5 clocks if using 2 multipliers)
+
+
+Part 2: Frequency-Dependent Saturation
+---------------------------------------
+This models magnetic core saturation, where low frequencies produce
+more flux (flux ~ V/f) and saturate the core first.
+
+Step A: Low-frequency envelope detection
+  - LPF the absolute value of the signal at ~200Hz
+  - This is a single 1st-order IIR: y[n] = alpha*|x[n]| + (1-alpha)*y[n-1]
+  - alpha = 1/(1 + fs/(2*pi*200)) ~ 0.0261 at 48kHz
+  - Q16.16: alpha = 0x0006B (approximately)
+  - Cost: 1 multiply + 1 add + 1 abs = 2 clocks
+
+Step B: Dynamic threshold computation
+  - threshold = sat_base * (1 - depth * envelope_normalized)
+  - sat_base and depth are constants (registers, set by CPU)
+  - envelope_normalized = envelope / peak_estimate
+  - Peak estimate: track running peak with slow decay
+    peak = max(peak * decay, |x|), decay ~ 0.9999
+  - Cost: 1 multiply + 1 subtract + 1 compare = 2 clocks
+
+Step C: Soft saturation (piecewise linear approximation of tanh)
+  - tanh(x) can be approximated with 4 segments:
+    |x| < 0.5:  y = x                    (linear region)
+    |x| < 1.0:  y = sign(x) * (0.375 + 0.625*|x|)   (transition)
+    |x| < 2.0:  y = sign(x) * (0.8125 + 0.1875*|x|)  (compression)
+    |x| >= 2.0: y = sign(x)              (hard clip)
+  - Alternatively, use the existing soft-clip LUT (256 entries)
+  - Input to tanh: x_norm / threshold
+  - Output: threshold * tanh_approx(x_norm / threshold)
+  - Cost: 1 divide + 1 LUT lookup + 1 multiply = ~4 clocks
+    (divide can use reciprocal LUT: 256 entries -> multiply)
+
+Total cost for saturation: ~8 clocks
+
+
+Pipeline Integration
+--------------------
+Insert after power_amp_wdf.v output, before cabinet_fir.v input.
+
+State machine states (can share multiplier with existing pipeline):
+  ST_XF_HPF_1  -- biquad highpass multiply 1
+  ST_XF_HPF_2  -- biquad highpass multiply 2 + accumulate
+  ST_XF_HPF_3  -- biquad highpass state update
+  ST_XF_LPF_1  -- biquad lowpass multiply 1
+  ST_XF_LPF_2  -- biquad lowpass multiply 2 + accumulate
+  ST_XF_LPF_3  -- biquad lowpass state update
+  ST_XF_ENV    -- envelope follower (abs + IIR)
+  ST_XF_THR    -- compute dynamic threshold
+  ST_XF_SAT    -- apply saturation (LUT or piecewise)
+  ST_XF_SCALE  -- impedance ratio scaling (shift)
+
+Total: 10 states = 10 clocks at 27MHz
+Budget: 562 clocks/sample at 48kHz, easily fits.
+
+
+Register Map (optional CPU control)
+------------------------------------
+REG_XF_HPF_FC    -- HPF cutoff selector (precomputed coefficient sets)
+REG_XF_LPF_FC    -- LPF cutoff selector
+REG_XF_SAT_BASE  -- Base saturation threshold (Q8.8)
+REG_XF_SAT_DEPTH -- LF saturation depth (Q0.8, 0-255 maps to 0.0-1.0)
+REG_XF_BYPASS    -- Bypass transformer (1 = pass through)
+
+
+Resource Estimate (Gowin GW2A)
+-------------------------------
+  LUTs:  ~200 (biquads + saturation logic)
+  FFs:   ~150 (biquad state + envelope state + pipeline registers)
+  BRAM:  0 (piecewise linear) or 1x256x16 block (if using tanh LUT)
+  DSP:   Shares existing multiplier(s)
+
+Well within the GW2A budget of ~20K LUTs.
+
+
+Coefficient Presets
+-------------------
+Different transformer "personalities" via coefficient sets:
+
+  Fender-style (Deluxe/Twin):
+    HPF=50Hz, LPF=10kHz, sat_base=0.8, depth=0.4
+    -> Open, clear, less saturation
+
+  Marshall-style (JCM800):
+    HPF=70Hz, LPF=7kHz, sat_base=0.6, depth=0.7
+    -> Tighter bass, darker, more saturation
+
+  Vox-style (AC30):
+    HPF=80Hz, LPF=6kHz, sat_base=0.5, depth=0.8
+    -> Chime-y midrange, pronounced saturation
+
+  Hi-fi (300B SE):
+    HPF=30Hz, LPF=15kHz, sat_base=0.95, depth=0.2
+    -> Wide bandwidth, minimal saturation
