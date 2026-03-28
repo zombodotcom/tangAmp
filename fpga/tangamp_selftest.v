@@ -108,7 +108,24 @@ tone_stack_iir tone (
     .out_valid (tone_valid)
 );
 
-// ── Stage 3: Cabinet FIR ────────────────────────────────────────────────
+// ── Stage 3: Power Amp (gain + soft clip) ───────────────────────────────
+wire signed [31:0] power_out;
+wire power_valid;
+
+power_amp_stage #(
+    .POWER_GAIN_SHIFT (2),       // ~12dB
+    .CLIP_THRESHOLD   (32'sd1638400),  // 25V
+    .CLIP_CEILING     (32'sd1966080)   // 30V
+) power_amp (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (tone_valid),
+    .audio_in  (tone_out),
+    .audio_out (power_out),
+    .out_valid (power_valid)
+);
+
+// ── Stage 4: Cabinet FIR ────────────────────────────────────────────────
 wire signed [31:0] cab_out;
 wire cab_valid;
 
@@ -117,8 +134,8 @@ cabinet_fir #(
 ) cabinet (
     .clk       (clk_27m),
     .rst_n     (rst_n),
-    .sample_en (tone_valid),
-    .audio_in  (tone_out),
+    .sample_en (power_valid),
+    .audio_in  (power_out),
     .audio_out (cab_out),
     .out_valid (cab_valid)
 );

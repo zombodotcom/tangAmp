@@ -5,6 +5,7 @@ Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\triode_engine
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\wdf_triode_wdf.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\tone_stack_iir.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\power_amp_stage.v'
 Compiling module 'tangamp_selftest'("C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangamp_selftest.v":18)
 Extracting RAM for identifier 'sine_table'("C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangamp_selftest.v":54)
 WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangamp_selftest.v":47)
@@ -39,6 +40,7 @@ Extracting RAM for identifier 'bq_y1'("C:\Users\zombo\Desktop\Programming\tangAm
 Extracting RAM for identifier 'bq_y2'("C:\Users\zombo\Desktop\Programming\tangAmp\tone_stack_iir.v":89)
 WARN  (EX3791) : Expression size 50 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\tone_stack_iir.v":155)
 WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\tone_stack_iir.v":175)
+Compiling module 'power_amp_stage'("C:\Users\zombo\Desktop\Programming\tangAmp\power_amp_stage.v":21)
 Compiling module 'cabinet_fir'("C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v":17)
 Extracting RAM for identifier 'taps'("C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v":32)
 Extracting RAM for identifier 'sample_buf'("C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v":42)
@@ -46,7 +48,7 @@ WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\z
 WARN  (EX3791) : Expression size 32 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v":105)
 WARN  (EX3791) : Expression size 49 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v":112)
 WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v":116)
-WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangamp_selftest.v":155)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangamp_selftest.v":172)
 NOTE  (EX0101) : Current top module is "tangamp_selftest"
 [5%] Running netlist conversion ...
 Running device independent optimization ...
