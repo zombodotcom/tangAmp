@@ -89,6 +89,21 @@ initial begin
     $readmemh("data/dip_dvpk_lut.hex", dip_vpk_lut);
 end
 
+// Grid current LUTs (64 entries, Vgk 0-2V, distributed RAM)
+localparam IG_LUT_SIZE = 64;
+localparam IG_LUT_BITS = 6;
+localparam signed [FP_WIDTH-1:0] IG_VGK_MAX_FP = 32'sd131072;  // 2.0V in Q16.16
+localparam signed [FP_WIDTH-1:0] IG_VGK_STEP_FP = 32'sd2080;   // step in Q16.16
+localparam integer RG_INT = 1000000;  // Grid resistor (ohms)
+
+reg signed [15:0] ig_lut  [0:IG_LUT_SIZE-1];
+reg signed [15:0] dig_lut [0:IG_LUT_SIZE-1];
+
+initial begin
+    $readmemh("data/ig_lut.hex", ig_lut);
+    $readmemh("data/dig_lut.hex", dig_lut);
+end
+
 // ============================================================================
 // LUT Address Functions (copied from wdf_triode.v)
 // ============================================================================
@@ -112,6 +127,21 @@ function automatic [LUT_BITS-1:0] vgk_to_idx;
         if (tmp < VGK_MIN_MV) tmp = VGK_MIN_MV;
         if (tmp > VGK_MAX_MV) tmp = VGK_MAX_MV;
         vgk_to_idx = ((tmp - VGK_MIN_MV) * (LUT_SIZE-1)) / (VGK_MAX_MV - VGK_MIN_MV);
+    end
+endfunction
+
+function automatic [IG_LUT_BITS-1:0] vgk_to_ig_idx;
+    input signed [FP_WIDTH-1:0] vgk_fp;
+    reg signed [63:0] tmp;
+    begin
+        if (vgk_fp <= 0)
+            vgk_to_ig_idx = 0;
+        else if (vgk_fp >= IG_VGK_MAX_FP)
+            vgk_to_ig_idx = IG_LUT_SIZE - 1;
+        else begin
+            tmp = ($signed({vgk_fp, 16'b0})) / $signed(IG_VGK_STEP_FP);
+            vgk_to_ig_idx = tmp[IG_LUT_BITS-1:0];
+        end
     end
 endfunction
 
@@ -181,6 +211,17 @@ reg signed [63:0] temp_b;
 reg signed [47:0] step_num;
 reg signed [FP_WIDTH-1:0] step;
 
+// 2x2 Newton solver registers
+reg signed [FP_WIDTH-1:0] ig_est;
+reg signed [FP_WIDTH-1:0] ig_prev;
+reg signed [15:0] ig_raw;
+reg signed [15:0] dig_raw;
+reg signed [FP_WIDTH-1:0] f1_val;
+reg signed [FP_WIDTH-1:0] f2_val;
+reg signed [63:0] j11, j12, j21, j22;
+reg signed [63:0] det;
+reg signed [63:0] dIp_num, dIg_num;
+
 // ============================================================================
 // Main State Machine
 // ============================================================================
@@ -215,6 +256,12 @@ always @(posedge clk or negedge rst_n) begin
         f_val       <= 0;
         fp_val      <= 0;
         step        <= 0;
+        ig_est      <= 0;
+        ig_prev     <= 0;
+        ig_raw      <= 0;
+        dig_raw     <= 0;
+        f1_val      <= 0;
+        f2_val      <= 0;
     end else begin
         out_valid <= 1'b0;
 
@@ -223,8 +270,9 @@ always @(posedge clk or negedge rst_n) begin
         // ── Wait for sample_en ──────────────────────────────────────────
         ST_IDLE: begin
             if (sample_en) begin
-                // Initialize Ip estimate from previous sample's converged value
+                // Initialize Ip/Ig estimates from previous sample's converged values
                 ip_est <= ip_prev;
+                ig_est <= ig_prev;
                 newton_iter <= 0;
                 state <= ST_HP;
             end
@@ -277,6 +325,9 @@ always @(posedge clk or negedge rst_n) begin
             ip_raw      <= ip_lut[lut_addr];
             dip_vgk_raw <= dip_vgk_lut[lut_addr];
             dip_vpk_raw <= dip_vpk_lut[lut_addr];
+            // Grid current LUT read
+            ig_raw  <= ig_lut[vgk_to_ig_idx(vgk_est)];
+            dig_raw <= dig_lut[vgk_to_ig_idx(vgk_est)];
             state <= ST_NR_CONV;
         end
 
@@ -291,39 +342,49 @@ always @(posedge clk or negedge rst_n) begin
             state <= ST_NR_STEP;
         end
 
-        // ── Newton step ─────────────────────────────────────────────────
-        // f  = Ip - ip_model
-        // f' = 1 + dip_vpk * (RP + R_cath) + dip_vgk * R_cath
-        //    ≈ 1 + dip_vpk * RP (R_cath ≈ 0.47 ohm, negligible for dip_vgk term)
-        // Ip_new = Ip - f / f'
+        // ── 2x2 Newton step (Ip and Ig coupled) ────────────────────────
+        // f1 = Ip_est - Ip_model(Vpk, Vgk)
+        // f2 = Ig_est - Ig_model(Vgk)
+        // Jacobian: J = [[J11, J12], [J21, J22]]
+        // [dIp; dIg] = J^-1 * [f1; f2]
         ST_NR_STEP: begin
-            // f = ip_est - ip_model (both Q16.16)
-            f_val = ip_est - ip_model;
+            // Residuals
+            f1_val = ip_est - ip_model;
+            f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
-            // f' = 1.0 + dip_vpk * RPK + dip_vgk * R_cath
-            // Compute dip_vpk * RPK directly from raw value to avoid Q16.16 quantization:
-            //   dip_vpk_raw is int16 scaled by DIP_VPK_SCALE
-            //   dip_vpk * RPK in Q16.16 = (dip_vpk_raw * RPK_INT << 16) / DIP_VPK_SCALE
+            // J11 = 1 + dIp/dVpk * (Rp + Rk) ≈ 1 + dIp/dVpk * Rp
             temp_a = ($signed(dip_vpk_raw) * $signed(RPK_INT)) <<< FP_FRAC;
-            fp_val = ONE_FP + temp_a / DIP_VPK_SCALE;
+            j11 = ONE_FP + temp_a / DIP_VPK_SCALE;
 
-            // Newton step: Ip = Ip - f / f'
-            // f is Q16.16, f' is Q16.16
-            // To preserve precision: shift f left by 16 then divide by f'
-            // (f << 16) / f' gives Q16.16 result
-            step_num = {f_val, 16'b0};  // 48-bit: f << 16
-            if (fp_val != 0)
-                step = step_num / $signed(fp_val);
-            else
-                step = 0;
+            // J12 = dIp/dVgk * (Rg + Rk) ≈ dIp/dVgk * Rg
+            temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
+            j12 = temp_b / DIP_SCALE;
 
-            ip_est <= ip_est - step;
+            // J21 = dIg/dVgk * Rk ≈ 0
+            j21 = 0;
 
-            // Clamp to non-negative
-            if ((ip_est - step) < 0)
-                ip_est <= 0;
+            // J22 = 1 + dIg/dVgk * (Rg + Rk) ≈ 1 + dIg/dVgk * Rg
+            temp_a = ($signed({{16{dig_raw[15]}}, dig_raw}) * $signed(RG_INT));
+            j22 = ONE_FP + temp_a[47:16];
 
-            // Check if more iterations needed
+            // det = J11*J22 - J12*J21 (J21=0, so det = J11*J22)
+            det = (j11 * j22) >>> FP_FRAC;
+
+            // dIp = (J22*f1 - J12*f2) / det
+            dIp_num = (j22 * $signed(f1_val) - j12 * $signed(f2_val)) >>> FP_FRAC;
+
+            // dIg = (J11*f2 - J21*f1) / det (J21=0)
+            dIg_num = (j11 * $signed(f2_val)) >>> FP_FRAC;
+
+            // Apply Newton step
+            if (det != 0) begin
+                ip_est <= ip_est - dIp_num / det;
+                ig_est <= ig_est - dIg_num / det;
+                // Clamp non-negative
+                if ((ip_est - dIp_num / det) < 0) ip_est <= 0;
+                if ((ig_est - dIg_num / det) < 0) ig_est <= 0;
+            end
+
             if (newton_iter == 0) begin
                 newton_iter <= 1;
                 state <= ST_NR_ADDR;  // Loop back for second iteration
@@ -332,61 +393,26 @@ always @(posedge clk or negedge rst_n) begin
             end
         end
 
-        // ── Compute output with grid current ────────────────────────────
-        // v_plate = VB - RP * Ip
-        // Grid current: when Vgk > 0, Ig = 0.002 * Vgk^1.5
-        // This limits positive grid swing, preventing runaway in cascaded stages
-        // Piecewise linear approximation of x^1.5:
-        //   0.0-0.5V: Ig ≈ 0.001 * Vgk (linear)
-        //   0.5-1.0V: Ig ≈ 0.0005 + 0.002 * (Vgk - 0.5)
-        //   1.0-2.0V: Ig ≈ 0.0015 + 0.003 * (Vgk - 1.0)
-        // Effect: Ip_total = Ip + Ig, which increases voltage drop across Rp
+        // ── Compute output using converged Ip and Ig ────────────────────
         ST_OUTPUT: begin
-            // Compute Vgk from converged state
-            // vgk_est was computed in ST_NR_ADDR (last iteration value)
-            // Grid current only flows when Vgk > 0
-            begin
-                reg signed [FP_WIDTH-1:0] ig_est;
-                reg signed [FP_WIDTH-1:0] ip_total;
-
-                if (vgk_est > 0) begin
-                    // Piecewise linear Ig approximation in Q16.16
-                    // Vgk is in Q16.16, 0.5V = 32768, 1.0V = 65536
-                    if (vgk_est < 32'sd32768) begin
-                        // 0-0.5V: Ig = Vgk * 0.001 ≈ Vgk >> 10
-                        ig_est = vgk_est >>> 10;
-                    end else if (vgk_est < 32'sd65536) begin
-                        // 0.5-1.0V: Ig = 32 + (Vgk-32768) >> 9
-                        ig_est = 32'sd32 + ((vgk_est - 32'sd32768) >>> 9);
-                    end else begin
-                        // >1.0V: Ig = 96 + (Vgk-65536) >> 8
-                        ig_est = 32'sd96 + ((vgk_est - 32'sd65536) >>> 8);
-                    end
-                    ip_total = ip_est + ig_est;
-                end else begin
-                    ig_est = 0;
-                    ip_total = ip_est;
-                end
-
-                // v_plate = VB - RP * (Ip + Ig)
-                temp64 = $signed(RP_INT) * $signed(ip_total);
-                audio_out <= (VB_FP - temp64[31:0]) - vp_dc;
-            end
+            // v_plate = VB - RP * Ip (only plate current through plate resistor)
+            temp64 = $signed(RP_INT) * $signed(ip_est);
+            audio_out <= (VB_FP - temp64[31:0]) - vp_dc;
             out_valid <= 1'b1;
 
-            // Save converged Ip for next sample's initial guess
+            // Save converged values for next sample
             ip_prev <= ip_est;
+            ig_prev <= ig_est;
 
-            // Cathode downward pass: update bypass cap state
-            // bk_root = b_cathode + 2*R_cathode*Ip (root scattering for cathode)
-            // Parallel adaptor downward: a_ck = bk_root + b_cathode - b_ck
-            //   where b_ck = ck_z (capacitor reflected wave)
-            // ck_z <= a_ck (update cap state for next sample)
-            temp64b = $signed(TWO_R_CATH_FP) * $signed(ip_est);
+            // Cathode downward pass: total current = Ip + Ig
+            begin
+                reg signed [FP_WIDTH-1:0] ip_total;
+                ip_total = ip_est + ig_est;
+                temp64b = $signed(TWO_R_CATH_FP) * $signed(ip_total);
+            end
             ck_z <= (b_cathode + temp64b[47:16]) + b_cathode - ck_z;
 
-            // Update DC tracking (exponential moving average)
-            // vp_dc += (vplate - vp_dc) >> DC_SHIFT
+            // DC tracking
             if (!dc_frozen) begin
                 vp_dc <= vp_dc + (((VB_FP - temp64[31:0]) - vp_dc) >>> DC_SHIFT);
                 if (sample_count < DC_SETTLE_SAMPLES)
