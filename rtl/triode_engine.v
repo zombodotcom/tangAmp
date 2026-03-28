@@ -6,8 +6,8 @@
 // triode stages sequentially per audio sample. Each stage has its own
 // persistent state bank stored in registers.
 //
-// Clock budget: ~14 clocks/stage × NUM_STAGES per sample.
-// At NUM_STAGES=3: 42 clocks out of 562 available.
+// Clock budget: ~18 clocks/iteration × 3 iterations/stage × NUM_STAGES per sample.
+// At NUM_STAGES=3: ~162 clocks out of 562 available.
 //
 // Fixed point: Q16.16 signed throughout
 // ============================================================================
@@ -91,6 +91,7 @@ initial begin
     $readmemh("data/ip_lut_6l6.hex",       ip_lut_pa);
     $readmemh("data/dip_dvgk_lut_6l6.hex", dip_vgk_lut_pa);
 end
+
 
 // Grid current LUTs (shared across all stages)
 localparam IG_LUT_SIZE = 64;
@@ -221,16 +222,15 @@ reg signed [FP_WIDTH-1:0] ip_est;
 reg signed [FP_WIDTH-1:0] ip_prev;
 reg signed [FP_WIDTH-1:0] vpk_est;
 reg signed [FP_WIDTH-1:0] vgk_est;
-reg [0:0] newton_iter;
+reg [1:0] newton_iter;
 
 reg [LUT_BITS*2-1:0] lut_addr;
 reg signed [15:0] ip_raw;
 reg signed [15:0] dip_vgk_raw;
-// dip_vpk_raw removed — dIp/dVpk LUT dropped to fit BSRAM
+
 
 reg signed [FP_WIDTH-1:0] ip_model;
 reg signed [FP_WIDTH-1:0] dip_vgk_val;
-// dip_vpk_val removed
 
 // 2x2 Newton solver registers
 reg signed [FP_WIDTH-1:0] ig_est;
@@ -311,10 +311,8 @@ always @(posedge clk or negedge rst_n) begin
         lut_addr      <= 0;
         ip_raw        <= 0;
         dip_vgk_raw   <= 0;
-        // dip_vpk_raw removed
         ip_model      <= 0;
         dip_vgk_val   <= 0;
-        // dip_vpk_val removed
         vp_dc         <= VP_DC_INIT;
         sample_count  <= 0;
         dc_frozen     <= 0;
@@ -423,9 +421,10 @@ always @(posedge clk or negedge rst_n) begin
             f1_val = ip_est - ip_model;
             f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
-            // J11 ≈ 2 (constant approximation; dIp/dVpk LUT dropped to fit BSRAM)
-            // True J11 = 1 + dIp/dVpk * RPK ≈ 1.5-2.5 for 12AX7 at typical operating points.
-            // J11=1 diverges because step=f1 overshoots; J11=2 halves the step, converging.
+            // J11 = 1 + dIp/dVpk * RPK
+            // Constant approximation: J11 = 2 (halves Newton step, stable convergence)
+            // True value ≈ 1.5-2.5 for 12AX7 at typical operating points.
+            // With 3 iterations, the constant J11=2 converges well enough.
             j11 = ONE_FP <<< 1;
 
             // J12 = dIp/dVgk * Rg
@@ -453,8 +452,9 @@ always @(posedge clk or negedge rst_n) begin
                 if ((ig_est - step_ig) < 0) ig_est <= 0;
             end
 
-            if (newton_iter == 0) begin
-                newton_iter <= 1;
+            // 3 Newton iterations (was 2): iter 0, 1, 2
+            if (newton_iter < 2'd2) begin
+                newton_iter <= newton_iter + 1;
                 state <= ST_NR_ADDR;
             end else begin
                 state <= ST_OUTPUT;
