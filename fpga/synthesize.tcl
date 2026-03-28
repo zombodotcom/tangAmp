@@ -8,11 +8,11 @@ add_file ../rtl/nfb_register.v
 add_file ../rtl/cabinet_fir.v
 add_file ../data/ip_lut.hex
 add_file ../data/dip_dvgk_lut.hex
-add_file ../data/dip_dvpk_lut.hex
 add_file ../data/ip_lut_6l6.hex
 add_file ../data/dip_dvgk_lut_6l6.hex
-add_file ../data/dip_dvpk_lut_6l6.hex
 add_file ../data/cab_ir.hex
+add_file ../data/ig_lut.hex
+add_file ../data/dig_lut.hex
 add_file tangnano20k.cst
 set_option -top_module tangamp_selftest
 set_option -verilog_std sysv2017
@@ -21,4 +21,5 @@ set_option -use_mspi_as_gpio 1
 set_option -use_ready_as_gpio 1
 set_option -use_done_as_gpio 1
 set_option -rw_check_on_ram 1
+set_option -include_path ..
 run all

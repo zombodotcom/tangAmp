@@ -77,23 +77,19 @@ localparam DC_SETTLE_SAMPLES = 10000;
 // LUT Memory (shared across all stages)
 // ============================================================================
 
-// 12AX7 preamp LUTs
+// 12AX7 preamp LUTs (ip + dip/dvgk only — dip/dvpk dropped to fit BSRAM)
 reg signed [15:0] ip_lut      [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vgk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
-reg signed [15:0] dip_vpk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
 
 // 6L6 power amp LUTs
 reg signed [15:0] ip_lut_pa      [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vgk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
-reg signed [15:0] dip_vpk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
 
 initial begin
     $readmemh("data/ip_lut.hex",           ip_lut);
     $readmemh("data/dip_dvgk_lut.hex",     dip_vgk_lut);
-    $readmemh("data/dip_dvpk_lut.hex",     dip_vpk_lut);
     $readmemh("data/ip_lut_6l6.hex",       ip_lut_pa);
     $readmemh("data/dip_dvgk_lut_6l6.hex", dip_vgk_lut_pa);
-    $readmemh("data/dip_dvpk_lut_6l6.hex", dip_vpk_lut_pa);
 end
 
 // Grid current LUTs (shared across all stages)
@@ -230,11 +226,11 @@ reg [0:0] newton_iter;
 reg [LUT_BITS*2-1:0] lut_addr;
 reg signed [15:0] ip_raw;
 reg signed [15:0] dip_vgk_raw;
-reg signed [15:0] dip_vpk_raw;
+// dip_vpk_raw removed — dIp/dVpk LUT dropped to fit BSRAM
 
 reg signed [FP_WIDTH-1:0] ip_model;
 reg signed [FP_WIDTH-1:0] dip_vgk_val;
-reg signed [FP_WIDTH-1:0] dip_vpk_val;
+// dip_vpk_val removed
 
 // 2x2 Newton solver registers
 reg signed [FP_WIDTH-1:0] ig_est;
@@ -315,10 +311,10 @@ always @(posedge clk or negedge rst_n) begin
         lut_addr      <= 0;
         ip_raw        <= 0;
         dip_vgk_raw   <= 0;
-        dip_vpk_raw   <= 0;
+        // dip_vpk_raw removed
         ip_model      <= 0;
         dip_vgk_val   <= 0;
-        dip_vpk_val   <= 0;
+        // dip_vpk_val removed
         vp_dc         <= VP_DC_INIT;
         sample_count  <= 0;
         dc_frozen     <= 0;
@@ -405,11 +401,9 @@ always @(posedge clk or negedge rst_n) begin
             if (is_power_amp) begin
                 ip_raw      <= ip_lut_pa[lut_addr];
                 dip_vgk_raw <= dip_vgk_lut_pa[lut_addr];
-                dip_vpk_raw <= dip_vpk_lut_pa[lut_addr];
             end else begin
                 ip_raw      <= ip_lut[lut_addr];
                 dip_vgk_raw <= dip_vgk_lut[lut_addr];
-                dip_vpk_raw <= dip_vpk_lut[lut_addr];
             end
             // Grid current LUT read
             ig_raw  <= ig_lut[vgk_to_ig_idx(vgk_est)];
@@ -421,7 +415,6 @@ always @(posedge clk or negedge rst_n) begin
         ST_NR_CONV: begin
             ip_model    <= ($signed(ip_raw) <<< FP_FRAC) / IP_SCALE;
             dip_vgk_val <= ($signed(dip_vgk_raw) <<< FP_FRAC) / DIP_SCALE;
-            dip_vpk_val <= ($signed(dip_vpk_raw) <<< FP_FRAC) / DIP_VPK_SCALE;
             state <= ST_NR_STEP;
         end
 
@@ -430,9 +423,8 @@ always @(posedge clk or negedge rst_n) begin
             f1_val = ip_est - ip_model;
             f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
-            // J11 = 1 + dIp/dVpk * Rpk_active
-            temp_a = ($signed(dip_vpk_raw) * rpk_active) <<< FP_FRAC;
-            j11 = ONE_FP + temp_a / DIP_VPK_SCALE;
+            // J11 ≈ 1 (dIp/dVpk dropped to save BSRAM — negligible effect on convergence)
+            j11 = ONE_FP;
 
             // J12 = dIp/dVgk * Rg
             temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
