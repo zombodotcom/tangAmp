@@ -5,7 +5,10 @@
     <Device id="GW2AR-18C" package="QFN88" speed="8" partNumber="GW2AR-LV18QN88C8/I7"/>
     <FileList>
         <File path="C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangamp_selftest.v" type="verilog"/>
+        <File path="C:\Users\zombo\Desktop\Programming\tangAmp\triode_engine.v" type="verilog"/>
         <File path="C:\Users\zombo\Desktop\Programming\tangAmp\wdf_triode_wdf.v" type="verilog"/>
+        <File path="C:\Users\zombo\Desktop\Programming\tangAmp\tone_stack_iir.v" type="verilog"/>
+        <File path="C:\Users\zombo\Desktop\Programming\tangAmp\cabinet_fir.v" type="verilog"/>
     </FileList>
     <OptionList>
         <Option type="disable_insert_pad" value="0"/>
