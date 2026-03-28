@@ -117,8 +117,9 @@ programmer_cli --device GW2AR-18C --run 2 --fsFile fpga/impl/pnr/project.fs
 
 ## Tube Types Supported (Koren constants)
 - **Preamp:** 12AX7 (mu=100), 12AU7 (mu=27.48, fitted), 6SL7 (mu=90.41)
-- **Power amp:** EL34 (mu=10.98), 6L6 (mu=10.11), 300B (mu=3.95)
+- **Power amp:** EL34 (mu=10.98), 6L6 (mu=10.11), 300B (mu=3.95), EL84 (mu=18.39, fitted), 6V6 (mu=10.33, fitted)
 - Curve-fitted 12AX7/12AU7 constants in `sim/fit_tube_model.py` (10.7%/2.6% mean error vs RCA datasheet)
+- Curve-fitted EL84/6V6 triode-connected constants (7.9%/5.7% mean error vs Mullard/RCA datasheets)
 
 ## Key References
 

@@ -34,6 +34,8 @@ TUBES = {
     "EL34":  dict(mu=10.98,  ex=1.42, kg1=249.65,  kp=43.2,   kvb=333.0),     # paengdesign
     "6L6":   dict(mu=10.11,  ex=1.37, kg1=406.6,   kp=31.2,   kvb=640.7),     # paengdesign
     "300B":  dict(mu=3.95,   ex=1.4,  kg1=1550.0,  kp=65.0,   kvb=300.0),     # paengdesign
+    "EL84":  dict(mu=18.39,  ex=1.32, kg1=374.24,  kp=85.89,  kvb=3000.0),    # triode-connected, fitted to Mullard datasheet
+    "6V6":   dict(mu=10.33,  ex=1.27, kg1=555.36,  kp=93.89,  kvb=4513.17),   # triode-connected, fitted to RCA datasheet
 }
 
 # ─── Tube Configurations ─────────────────────────────────────────────────────
@@ -50,6 +52,18 @@ TUBE_CONFIGS = {
         "vpk_min": 0.0, "vpk_max": 500.0,   # wider: VB=400V power amp
         "vgk_min": -50.0, "vgk_max": 0.0,    # 6L6 biased more negative
         "suffix": "_6l6",  # ip_lut_6l6.hex etc.
+    },
+    "EL84": {
+        "params": TUBES["EL84"],
+        "vpk_min": 0.0, "vpk_max": 400.0,   # Vox AC30: B+=330V
+        "vgk_min": -20.0, "vgk_max": 0.0,    # EL84 triode bias range
+        "suffix": "_el84",
+    },
+    "6V6": {
+        "params": TUBES["6V6"],
+        "vpk_min": 0.0, "vpk_max": 500.0,   # Fender Deluxe: B+=420V
+        "vgk_min": -30.0, "vgk_max": 0.0,    # 6V6 triode bias range
+        "suffix": "_6v6",
     },
 }
 
@@ -236,10 +250,11 @@ with open(lut_params_path, 'w') as f:
 print(f"\n  Written: {lut_params_path}")
 
 # ─── Visualize ────────────────────────────────────────────────────────────────
-fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-fig.suptitle("Tube LUTs: 12AX7 (preamp) + 6L6 (power amp)", fontsize=13)
+n_tubes = len(all_plot_data)
+fig, axes = plt.subplots(n_tubes, 2, figsize=(14, 5*n_tubes))
+fig.suptitle("Tube LUTs: " + " + ".join(all_plot_data.keys()), fontsize=13)
 
-for row, tube_name in enumerate(["12AX7", "6L6"]):
+for row, tube_name in enumerate(all_plot_data.keys()):
     pd = all_plot_data[tube_name]
     p = pd["p"]
 
@@ -310,9 +325,10 @@ print(f"    IG_VGK_STEP_FP = {IG_VGK_STEP_FP}  // {IG_VGK_MAX}/{IG_LUT_SIZE-1} *
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 print(f"\nDone. Files generated for {LUT_SIZE}x{LUT_SIZE} LUTs:")
-print(f"  ip_lut.hex / dip_dvgk_lut.hex / dip_dvpk_lut.hex  (12AX7 preamp)")
-print(f"  ip_lut_6l6.hex / dip_dvgk_lut_6l6.hex / dip_dvpk_lut_6l6.hex  (6L6 power amp)")
-print(f"  lut_params.v   — Verilog parameters for both tubes")
+for tube_name, cfg in TUBE_CONFIGS.items():
+    suffix = cfg["suffix"] if cfg["suffix"] else " (default)"
+    print(f"  ip_lut{cfg['suffix']}.hex / dip_dvgk_lut{cfg['suffix']}.hex / dip_dvpk_lut{cfg['suffix']}.hex  ({tube_name})")
+print(f"  lut_params.v   — Verilog parameters")
 print(f"  tube_plot.png  — visual check")
 
 # WDF constants for Verilog hardcoding
