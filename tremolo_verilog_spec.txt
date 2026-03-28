@@ -1,0 +1,112 @@
+Bias Tremolo -- Verilog Implementation Spec for Tang Nano 20K
+=============================================================
+
+Overview
+--------
+Bias tremolo modulates the cathode bias voltage of the power tube stage
+with a low-frequency oscillator (LFO). This shifts the tube operating
+point each sample, changing both gain and harmonic content.
+
+On FPGA: the LFO is a phase accumulator + sine LUT. Total cost: ~3-5
+clocks per sample, negligible resource usage.
+
+
+LFO Architecture
+----------------
+
+1. Phase Accumulator (32-bit):
+   - phase_acc += phase_inc   (every sample clock, 48 kHz)
+   - phase_inc = (rate_hz / fs) * 2^32
+   - Example: 4 Hz -> phase_inc = (4 / 48000) * 2^32 = 357,914
+
+2. Sine LUT:
+   - 256 entries x 16-bit signed (Q1.15 format, range -32767..+32767)
+   - Address = phase_acc[31:24] (top 8 bits)
+   - Size: 256 * 16 bits = 512 bytes (fits in one BRAM block easily)
+   - Quarter-wave symmetry optimization possible (64 entries) but
+     not necessary given BRAM abundance on GW2A
+
+3. Depth Scaling (1 multiply):
+   - lfo_scaled = (lfo_raw * depth_reg) >>> 15
+   - depth_reg: 16-bit unsigned, 0x0000 = no effect, 0x7FFF = full depth
+   - Result: signed 16-bit modulation value
+
+4. Bias Modulation (1 add):
+   - Rk_modulated = Rk_nominal + lfo_scaled
+   - Or equivalently: add lfo_scaled to the cathode wave variable
+     before the Newton-Raphson solve
+
+5. Rate Control:
+   - rate_reg: 16-bit register sets phase_inc
+   - phase_inc = rate_reg << 8  (gives ~0.003 Hz to ~190 Hz range)
+   - Typical range: 2-8 Hz tremolo
+
+
+Verilog Pseudocode
+------------------
+
+  // Phase accumulator
+  reg [31:0] lfo_phase;
+  always @(posedge clk_48k) begin
+      lfo_phase <= lfo_phase + phase_inc;
+  end
+
+  // Sine LUT (256 x 16-bit, loaded from .hex or hardcoded)
+  reg signed [15:0] sine_lut [0:255];
+  initial $readmemh("sine_lut.hex", sine_lut);
+
+  wire [7:0] lfo_addr = lfo_phase[31:24];
+  wire signed [15:0] lfo_raw = sine_lut[lfo_addr];
+
+  // Depth scaling: Q1.15 * Q0.16 -> Q1.31, take top 16
+  wire signed [31:0] lfo_product = lfo_raw * $signed({1'b0, depth_reg});
+  wire signed [15:0] lfo_scaled = lfo_product[30:15];
+
+  // Apply to cathode bias in WDF pipeline
+  // In state ST_BIAS_MOD (insert before Newton-Raphson):
+  //   a_k <= a_k + {{16{lfo_scaled[15]}}, lfo_scaled};  // sign-extend to Q16.16
+
+
+Pipeline Integration
+--------------------
+Insert into existing wdf_triode.v pipeline as one additional state:
+
+  Current: ... -> ST_CATHODE_UP -> ST_NR_ITER1 -> ...
+  New:     ... -> ST_CATHODE_UP -> ST_BIAS_MOD -> ST_NR_ITER1 -> ...
+
+ST_BIAS_MOD takes 1-2 clocks:
+  Clock 1: LUT read (lfo_addr -> lfo_raw)
+  Clock 2: Multiply + add to a_k
+
+Total additional clocks per sample: 2
+Total additional LUTs: ~30 (multiply + control)
+Additional BRAM: 0.5 block (256x16 sine table)
+
+
+Control Registers (accent accent accent accent accent accent)
+-----------------
+  Address   Width   Name        Description
+  0x10      16      TREM_RATE   LFO phase increment (maps to ~0-10 Hz)
+  0x12      16      TREM_DEPTH  Modulation depth (0=off, 0x7FFF=max)
+  0x14      8       TREM_WAVE   Waveform select (0=sine, 1=triangle)
+  0x15      1       TREM_EN     Enable/bypass
+
+Triangle wave alternative: no LUT needed, just an up/down counter:
+  reg signed [15:0] tri_counter;
+  reg tri_dir;
+  always @(posedge clk_48k) begin
+      if (tri_dir)
+          tri_counter <= tri_counter + tri_step;
+      else
+          tri_counter <= tri_counter - tri_step;
+      if (tri_counter >= 16'h7F00) tri_dir <= 0;
+      if (tri_counter <= 16'h8100) tri_dir <= 1;
+  end
+
+
+Resource Summary
+----------------
+  LUTs:  ~30 additional (multiply, mux, control)
+  BRAM:  0.5 block (sine table, or 0 if triangle-only)
+  Clocks: +2 per sample (out of 562 budget)
+  Regs:  ~80 bits (phase_acc, depth, rate, control)
