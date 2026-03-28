@@ -141,7 +141,13 @@ def simulate_single(audio_in, use_bypass=False, settle=2000):
 
 def make_cabinet_ir(cab_type, n_taps=257, fs=48000):
     """
-    Create a synthetic cabinet impulse response as an FIR filter.
+    Create a physics-based cabinet impulse response as an FIR filter.
+
+    Uses Thiele-Small speaker model + cabinet resonance:
+      1. Speaker cone: damped harmonic oscillator (Fs, Qts)
+      2. High-frequency rolloff: cone breakup / beaming
+      3. Cabinet: Helmholtz resonance for open-back, sealed box for closed-back
+      4. Baffle diffraction step (~500Hz for 12" speaker)
 
     Parameters
     ----------
@@ -158,24 +164,42 @@ def make_cabinet_ir(cab_type, n_taps=257, fs=48000):
         FIR filter taps (n_taps,)
     """
     nyq = fs / 2.0
-    n_freqs = 512
+    n_freqs = 2048
     freqs_hz = np.linspace(0, nyq, n_freqs)
+    # Avoid divide by zero at DC
+    freqs_safe = np.maximum(freqs_hz, 1.0)
     mag = np.ones(n_freqs)
 
     if cab_type == '1x12_open':
-        # Low peak at 100Hz, Q=2
-        _apply_peak(mag, freqs_hz, 100.0, 6.0, 2.0)
-        # Presence at 2.5kHz, Q=1.5
-        _apply_peak(mag, freqs_hz, 2500.0, 3.0, 1.5)
-        # LPF at 5kHz
-        _apply_lpf(mag, freqs_hz, 5000.0)
+        # --- Thiele-Small: typical Celestion/Jensen 12" open-back ---
+        Fs = 75.0     # resonance frequency (Hz)
+        Qts = 0.9     # total Q
+        # Speaker cone: 2nd order highpass above Fs
+        _apply_speaker_response(mag, freqs_safe, Fs, Qts)
+        # Baffle diffraction step at ~500Hz (12" baffle, +6dB step)
+        _apply_diffraction_step(mag, freqs_safe, 500.0, 4.0)
+        # Open-back cancellation notch around 200Hz
+        _apply_peak(mag, freqs_safe, 200.0, -4.0, 1.5)
+        # Presence peak from cone breakup ~2.5kHz
+        _apply_peak(mag, freqs_safe, 2500.0, 4.0, 2.0)
+        # High-frequency rolloff (cone mass + beaming)
+        _apply_lpf(mag, freqs_safe, 5000.0, order=3)
+
     elif cab_type == '4x12_closed':
-        # Low peak at 80Hz, Q=3, more bass (+8dB)
-        _apply_peak(mag, freqs_hz, 80.0, 8.0, 3.0)
-        # Presence at 3.5kHz, Q=1
-        _apply_peak(mag, freqs_hz, 3500.0, 2.0, 1.0)
-        # LPF at 4.5kHz
-        _apply_lpf(mag, freqs_hz, 4500.0)
+        # --- Thiele-Small: typical Celestion G12T-75 in sealed 4x12 ---
+        Fs = 65.0     # lower resonance in sealed box
+        Qts = 1.1     # higher Q (sealed box raises Qtc)
+        _apply_speaker_response(mag, freqs_safe, Fs, Qts)
+        # Baffle diffraction step (larger cab, lower freq)
+        _apply_diffraction_step(mag, freqs_safe, 350.0, 5.0)
+        # Sealed box: no rear cancellation, but box resonance boost
+        _apply_peak(mag, freqs_safe, 80.0, 5.0, 2.5)
+        # Presence peak (4x12 cabs peak higher)
+        _apply_peak(mag, freqs_safe, 3500.0, 3.0, 1.5)
+        # Speaker interaction comb-filter dip
+        _apply_peak(mag, freqs_safe, 1200.0, -3.0, 2.0)
+        # Steeper HF rolloff (4x12 cabs are darker)
+        _apply_lpf(mag, freqs_safe, 4500.0, order=4)
     else:
         raise ValueError(f"Unknown cabinet type: {cab_type}")
 
@@ -183,17 +207,13 @@ def make_cabinet_ir(cab_type, n_taps=257, fs=48000):
     freqs_norm = freqs_hz / nyq
 
     if HAS_SCIPY:
-        # Use scipy.signal.firwin2 for frequency sampling FIR design
         ir = firwin2(n_taps, freqs_norm, mag)
     else:
-        # Fallback: inverse FFT approach
-        # Build full symmetric spectrum
         full_mag = np.zeros(n_taps)
         n_half = n_taps // 2 + 1
         freq_interp = np.linspace(0, 1, n_half)
         mag_interp = np.interp(freq_interp, freqs_norm, mag)
         full_mag[:n_half] = mag_interp
-        # Mirror for negative frequencies
         full_mag[n_half:] = mag_interp[-2:0:-1]
         ir = np.real(np.fft.ifft(full_mag))
         ir = np.roll(ir, n_taps // 2)
@@ -209,18 +229,43 @@ def make_cabinet_ir(cab_type, n_taps=257, fs=48000):
     return ir
 
 
+def _apply_speaker_response(mag, freqs, Fs, Qts):
+    """
+    Apply 2nd-order bandpass speaker cone response (Thiele-Small model).
+    Below Fs: rolls off as highpass (cone excursion limited).
+    Above Fs: flat until breakup.
+    """
+    s = 1j * freqs / Fs
+    # Transfer function of speaker: H(s) = s^2 / (s^2 + s/Qts + 1)
+    # This is the pressure response of a cone in an infinite baffle
+    H = s**2 / (s**2 + s / Qts + 1.0)
+    mag *= np.abs(H)
+
+
+def _apply_diffraction_step(mag, freqs, fc, gain_db):
+    """
+    Apply baffle diffraction step: +gain_db above fc.
+    Models the transition from 2pi to 4pi radiation as frequency increases
+    past the baffle dimension.
+    """
+    gain_lin = 10.0 ** (gain_db / 20.0)
+    # Smooth step using a sigmoid
+    step = 1.0 + (gain_lin - 1.0) / (1.0 + (fc / freqs) ** 2)
+    mag *= step
+
+
 def _apply_peak(mag, freqs, fc, gain_db, Q):
-    """Apply a resonant peak to a magnitude array."""
+    """Apply a resonant peak (or notch if gain_db < 0) to a magnitude array."""
     gain_lin = 10.0 ** (gain_db / 20.0)
     bw = fc / Q
     shape = 1.0 / (1.0 + ((freqs - fc) / (bw / 2.0)) ** 2)
     mag *= (1.0 + (gain_lin - 1.0) * shape)
 
 
-def _apply_lpf(mag, freqs, fc):
-    """Apply a 2nd-order low-pass rolloff to a magnitude array."""
+def _apply_lpf(mag, freqs, fc, order=2):
+    """Apply an Nth-order Butterworth-style low-pass rolloff."""
     ratio = freqs / fc
-    atten = 1.0 / np.sqrt(1.0 + ratio ** 4)
+    atten = 1.0 / np.sqrt(1.0 + ratio ** (2 * order))
     mag *= atten
 
 

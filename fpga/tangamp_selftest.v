@@ -108,15 +108,11 @@ tone_stack_iir tone (
     .out_valid (tone_valid)
 );
 
-// ── Stage 3: Power Amp (gain + soft clip) ───────────────────────────────
+// ── Stage 3: Power Amp (WDF 6L6 triode + transformer soft clip) ─────────
 wire signed [31:0] power_out;
 wire power_valid;
 
-power_amp_stage #(
-    .POWER_GAIN_SHIFT (2),       // ~12dB
-    .CLIP_THRESHOLD   (32'sd1638400),  // 25V
-    .CLIP_CEILING     (32'sd1966080)   // 30V
-) power_amp (
+power_amp_wdf power_amp (
     .clk       (clk_27m),
     .rst_n     (rst_n),
     .sample_en (tone_valid),

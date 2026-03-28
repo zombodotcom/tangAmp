@@ -1,25 +1,30 @@
 // ============================================================================
 // tone_stack_iir.v
-// 3-band parametric EQ tone stack using cascaded biquad (IIR) filters.
+// Tone stack using cascaded biquad (IIR) filters derived from actual
+// Fender Bassman / Marshall JCM800 circuit topology.
 //
-// Bands:
-//   Bass:   lowshelf at 200Hz
-//   Mid:    peaking at 800Hz, Q=0.7
-//   Treble: highshelf at 3kHz
+// Coefficients computed by compute_tonestack.py from the analog transfer
+// function of the passive RC tone stack network, bilinear-transformed
+// to digital IIR and factored into second-order sections (SOS).
 //
-// Default coefficients are FLAT (bass=5, mid=5, treble=5 = 0dB all bands).
-// At 0dB, all shelf/peaking filters reduce to unity (b==a), so this is
-// a transparent pass-through by default — ready for knob control later.
+// Default: Fender Bassman flat (T=5, M=5, L=5).
+// AMP_SELECT parameter: 0=Fender, 1=Marshall.
+//
+// Component values:
+//   Fender:  R1=250k R2=1M R3=25k R4=56k C1=250pF C2=20nF C3=20nF
+//   Marshall: R1=220k R2=1M R3=25k R4=33k C1=470pF C2=22nF C3=22nF
 //
 // Biquad: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
-// Coefficients in Q2.14 (signed 16-bit, multiply Q16.16 × Q2.14, shift >>14)
+// Coefficients in Q2.14 (signed 16-bit, multiply Q16.16 x Q2.14, shift >>14)
 //
 // Pipeline: 3 biquads processed sequentially, ~3 clocks each = 9 clocks total
 //
 // Fixed point: Q16.16 signed throughout
 // ============================================================================
 
-module tone_stack_iir (
+module tone_stack_iir #(
+    parameter AMP_SELECT = 0  // 0=Fender Bassman, 1=Marshall JCM800
+)(
     input  wire        clk,
     input  wire        rst_n,
     input  wire        sample_en,
@@ -30,33 +35,71 @@ module tone_stack_iir (
 
 // ============================================================================
 // Biquad Coefficients (Q2.14 signed 16-bit)
-// Default: flat (0dB on all bands) — b == a so output == input
+// Derived from actual tone stack circuit topology by compute_tonestack.py.
+// The analog H(s) of the passive RC network is bilinear-transformed to H(z)
+// and factored into cascaded second-order sections.
 //
-// Bass: lowshelf 200Hz, 0dB, Q=0.707
-// Mid:  peaking 800Hz, 0dB, Q=0.7
-// Treble: highshelf 3kHz, 0dB, Q=0.707
+// Fender Bassman: R1=250k R2=1M R3=25k R4=56k C1=250pF C2=20nF C3=20nF
+// Marshall JCM800: R1=220k R2=1M R3=25k R4=33k C1=470pF C2=22nF C3=22nF
+// Setting: flat (T=5, M=5, L=5)
 // ============================================================================
 
-// Bass biquad
-localparam signed [15:0] BASS_B0 =  16'sd16384;   // 1.0
-localparam signed [15:0] BASS_B1 = -16'sd32161;   // -1.9630
-localparam signed [15:0] BASS_B2 =  16'sd15788;   // 0.9636
-localparam signed [15:0] BASS_A1 = -16'sd32161;   // -1.9630
-localparam signed [15:0] BASS_A2 =  16'sd15788;   // 0.9636
+// --- Fender Bassman flat (T=0.5, M=0.5, L=0.5) ---
+localparam signed [15:0] FENDER_BASS_B0 =  16'sd9978;
+localparam signed [15:0] FENDER_BASS_B1 = -16'sd18995;
+localparam signed [15:0] FENDER_BASS_B2 =  16'sd9202;
+localparam signed [15:0] FENDER_BASS_A1 = -16'sd5992;
+localparam signed [15:0] FENDER_BASS_A2 =  16'sd0;
 
-// Mid biquad
-localparam signed [15:0] MID_B0 =  16'sd16384;    // 1.0
-localparam signed [15:0] MID_B1 = -16'sd30324;    // -1.8509
-localparam signed [15:0] MID_B2 =  16'sd14107;    // 0.8610
-localparam signed [15:0] MID_A1 = -16'sd30324;    // -1.8509
-localparam signed [15:0] MID_A2 =  16'sd14107;    // 0.8610
+localparam signed [15:0] FENDER_MID_B0 =  16'sd16384;
+localparam signed [15:0] FENDER_MID_B1 = -16'sd16384;
+localparam signed [15:0] FENDER_MID_B2 =  16'sd0;
+localparam signed [15:0] FENDER_MID_A1 = -16'sd32415;
+localparam signed [15:0] FENDER_MID_A2 =  16'sd16031;
 
-// Treble biquad
-localparam signed [15:0] TREB_B0 =  16'sd16384;   // 1.0
-localparam signed [15:0] TREB_B1 = -16'sd23826;   // -1.4542
-localparam signed [15:0] TREB_B2 =  16'sd9405;    // 0.5740
-localparam signed [15:0] TREB_A1 = -16'sd23826;   // -1.4542
-localparam signed [15:0] TREB_A2 =  16'sd9405;    // 0.5740
+localparam signed [15:0] FENDER_TREB_B0 =  16'sd16384;
+localparam signed [15:0] FENDER_TREB_B1 =  16'sd0;
+localparam signed [15:0] FENDER_TREB_B2 =  16'sd0;
+localparam signed [15:0] FENDER_TREB_A1 =  16'sd0;
+localparam signed [15:0] FENDER_TREB_A2 =  16'sd0;
+
+// --- Marshall JCM800 flat (T=0.5, M=0.5, L=0.5) ---
+localparam signed [15:0] MARSHALL_BASS_B0 =  16'sd12505;
+localparam signed [15:0] MARSHALL_BASS_B1 = -16'sd23903;
+localparam signed [15:0] MARSHALL_BASS_B2 =  16'sd11546;
+localparam signed [15:0] MARSHALL_BASS_A1 = -16'sd10747;
+localparam signed [15:0] MARSHALL_BASS_A2 =  16'sd0;
+
+localparam signed [15:0] MARSHALL_MID_B0 =  16'sd16384;
+localparam signed [15:0] MARSHALL_MID_B1 = -16'sd16384;
+localparam signed [15:0] MARSHALL_MID_B2 =  16'sd0;
+localparam signed [15:0] MARSHALL_MID_A1 = -16'sd32287;
+localparam signed [15:0] MARSHALL_MID_A2 =  16'sd15903;
+
+localparam signed [15:0] MARSHALL_TREB_B0 =  16'sd16384;
+localparam signed [15:0] MARSHALL_TREB_B1 =  16'sd0;
+localparam signed [15:0] MARSHALL_TREB_B2 =  16'sd0;
+localparam signed [15:0] MARSHALL_TREB_A1 =  16'sd0;
+localparam signed [15:0] MARSHALL_TREB_A2 =  16'sd0;
+
+// --- Select active coefficients based on AMP_SELECT ---
+localparam signed [15:0] BASS_B0 = (AMP_SELECT == 0) ? FENDER_BASS_B0 : MARSHALL_BASS_B0;
+localparam signed [15:0] BASS_B1 = (AMP_SELECT == 0) ? FENDER_BASS_B1 : MARSHALL_BASS_B1;
+localparam signed [15:0] BASS_B2 = (AMP_SELECT == 0) ? FENDER_BASS_B2 : MARSHALL_BASS_B2;
+localparam signed [15:0] BASS_A1 = (AMP_SELECT == 0) ? FENDER_BASS_A1 : MARSHALL_BASS_A1;
+localparam signed [15:0] BASS_A2 = (AMP_SELECT == 0) ? FENDER_BASS_A2 : MARSHALL_BASS_A2;
+
+localparam signed [15:0] MID_B0 = (AMP_SELECT == 0) ? FENDER_MID_B0 : MARSHALL_MID_B0;
+localparam signed [15:0] MID_B1 = (AMP_SELECT == 0) ? FENDER_MID_B1 : MARSHALL_MID_B1;
+localparam signed [15:0] MID_B2 = (AMP_SELECT == 0) ? FENDER_MID_B2 : MARSHALL_MID_B2;
+localparam signed [15:0] MID_A1 = (AMP_SELECT == 0) ? FENDER_MID_A1 : MARSHALL_MID_A1;
+localparam signed [15:0] MID_A2 = (AMP_SELECT == 0) ? FENDER_MID_A2 : MARSHALL_MID_A2;
+
+localparam signed [15:0] TREB_B0 = (AMP_SELECT == 0) ? FENDER_TREB_B0 : MARSHALL_TREB_B0;
+localparam signed [15:0] TREB_B1 = (AMP_SELECT == 0) ? FENDER_TREB_B1 : MARSHALL_TREB_B1;
+localparam signed [15:0] TREB_B2 = (AMP_SELECT == 0) ? FENDER_TREB_B2 : MARSHALL_TREB_B2;
+localparam signed [15:0] TREB_A1 = (AMP_SELECT == 0) ? FENDER_TREB_A1 : MARSHALL_TREB_A1;
+localparam signed [15:0] TREB_A2 = (AMP_SELECT == 0) ? FENDER_TREB_A2 : MARSHALL_TREB_A2;
 
 // ============================================================================
 // Coefficient Arrays (indexed by biquad number)

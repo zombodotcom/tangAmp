@@ -17,8 +17,8 @@ module triode_engine #(
     parameter ATTEN_SHIFT = 5,   // right-shift between stages (~-30dB)
     parameter FP_FRAC     = 16,
     parameter FP_WIDTH    = 32,
-    parameter LUT_BITS    = 8,
-    parameter LUT_SIZE    = 256,
+    parameter LUT_BITS    = 7,
+    parameter LUT_SIZE    = 128,
     parameter IP_SCALE    = 10000,
     parameter DIP_SCALE   = 100000,
     parameter DIP_VPK_SCALE = 10000000,
