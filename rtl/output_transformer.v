@@ -29,8 +29,10 @@ module output_transformer (
 // ============================================================================
 
 // --- HPF 60Hz Butterworth 2nd order ---
+// NOTE: b0+b1+b2 must equal exactly 0 for HPF DC rejection.
+// Original b1=-32587 gave sum=-1, causing DC gain of -1 (full DC leak).
 localparam signed [15:0] HPF_B0 =  16'sd16293;   // 0.9945
-localparam signed [15:0] HPF_B1 = -16'sd32587;   // -1.9889
+localparam signed [15:0] HPF_B1 = -16'sd32586;   // -(b0+b2) = exact zero DC gain
 localparam signed [15:0] HPF_B2 =  16'sd16293;   // 0.9945
 localparam signed [15:0] HPF_A1 = -16'sd32586;   // -1.9889
 localparam signed [15:0] HPF_A2 =  16'sd16203;   // 0.9890

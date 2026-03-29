@@ -37,8 +37,10 @@ module noise_gate #(
     // Absolute value of input
     wire signed [FP_WIDTH-1:0] abs_in = audio_in[FP_WIDTH-1] ? -audio_in : audio_in;
 
-    // Threshold scaled to Q16.16: threshold byte into integer part bits [23:16]
-    wire signed [FP_WIDTH-1:0] thresh_fp = {8'b0, threshold, 16'b0};
+    // Threshold scaled to Q16.16: threshold byte into fractional part bits [15:8]
+    // Each threshold unit = 1/256 V (e.g. threshold=8 -> 0.03125V, threshold=128 -> 0.5V)
+    // Guitar signals after 4x input scaling are ~0.2-2V, so sub-volt thresholds are needed.
+    wire signed [FP_WIDTH-1:0] thresh_fp = {16'b0, threshold, 8'b0};
 
     // Envelope delta
     wire signed [FP_WIDTH-1:0] env_delta = abs_in - envelope;

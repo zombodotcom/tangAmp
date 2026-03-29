@@ -253,6 +253,38 @@ always @(posedge clk_27m) begin
     end
 end
 
+// ── Internal Signal Probes ──────────────────────────────────────────────────
+integer fd2;
+initial fd2 = $fopen("top_tb_probes.txt", "w");
+
+always @(posedge clk_27m) begin
+    if (dac_sample_valid) begin
+        $fdisplay(fd2, "%0d %0d %0d %0d %0d %0d %0d %0d",
+            out_sample_count,
+            dut.scaled_in,
+            dut.gated_in,
+            dut.triode_input,
+            dut.audio_down,
+            dut.tone_out,
+            dut.xf_out,
+            dut.cab_out
+        );
+    end
+end
+
+// Noise gate probes (on adc_valid)
+always @(posedge clk_27m) begin
+    if (dut.adc_valid) begin
+        $fdisplay(fd2, "NG %0d env=%0d gain=%0d thresh=%0d scaled=%0d",
+            tx_sample_count,
+            dut.ngate.envelope,
+            dut.ngate.gain,
+            dut.ngate.thresh_fp,
+            dut.scaled_in
+        );
+    end
+end
+
 // ── Run Simulation ──────────────────────────────────────────────────────────
 // 12000 settling + 4800 audio samples at ~46875Hz
 // Each sample = 64 BCK * 9 sys_clk = 576 sys_clk
@@ -268,6 +300,7 @@ initial begin
     #((12000 + 4800) * 576 * CLK_PERIOD * 2);
 
     $fclose(fd);
+    $fclose(fd2);
     $display("Simulation complete. %0d output samples written to top_tb_output.txt", out_sample_count);
     $finish;
 end
