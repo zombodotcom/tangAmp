@@ -13,6 +13,7 @@ module tangamp_top_tb;
 // ── Clock and Reset ─────────────────────────────────────────────────────────
 reg clk_27m;
 reg btn_s1;
+reg btn_s2;
 localparam CLK_PERIOD = 37;  // ~27MHz
 
 initial clk_27m = 0;
@@ -31,6 +32,7 @@ wire dac_lrck = adc_lrck;
 tangamp_top dut (
     .clk_27m    (clk_27m),
     .btn_s1     (btn_s1),
+    .btn_s2     (btn_s2),
     .adc_bck    (adc_bck),
     .adc_lrck   (adc_lrck),
     .adc_dout   (adc_dout_reg),
@@ -293,6 +295,7 @@ end
 
 initial begin
     btn_s1 = 0;
+    btn_s2 = 1;  // not pressed (active low)
     #(CLK_PERIOD * 10);
     btn_s1 = 1;
 

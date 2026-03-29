@@ -17,6 +17,7 @@
 module tangamp_top (
     input  wire clk_27m,       // 27MHz crystal, pin 52
     input  wire btn_s1,        // Button S1, pin 88, active low (reset)
+    input  wire btn_s2,        // Button S2, pin 87, active low (bypass toggle)
 
     // I2S clocks (shared between ADC and DAC — wire both to these pins)
     output wire adc_bck,       // bit clock  (pin 76 → PCM1802.BCK + PCM5102.BCK)
@@ -36,6 +37,30 @@ reg rst_n;
 always @(posedge clk_27m) begin
     rst_sync <= {rst_sync[0], btn_s1};
     rst_n <= rst_sync[1];
+end
+
+// ── Bypass Mode Toggle (S2 debounce) ──────────────────────────────────────
+reg [15:0] s2_debounce;
+reg s2_prev;
+reg bypass_mode;
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        s2_debounce <= 0;
+        s2_prev <= 1;
+        bypass_mode <= 0;
+    end else begin
+        s2_prev <= btn_s2;
+        if (!btn_s2 && s2_prev) begin
+            // Falling edge detected — toggle bypass
+            if (s2_debounce == 0) begin
+                bypass_mode <= ~bypass_mode;
+                s2_debounce <= 16'hFFFF;  // ~2.4ms debounce at 27MHz
+            end
+        end
+        if (s2_debounce > 0)
+            s2_debounce <= s2_debounce - 1;
+    end
 end
 
 // ── Audio Clock Generator ──────────────────────────────────────────────────
@@ -273,7 +298,9 @@ nfb_register #(
 // cab_out is in Q16.16 with typical range ±50V.
 // DAC expects values near full scale. Shift right to avoid clipping,
 // then the DAC's own output stage handles the analog level.
-wire signed [31:0] dac_audio = cab_out >>> 2;
+// In bypass mode, send scaled ADC input directly to DAC
+// In normal mode, send processed cab_out
+wire signed [31:0] dac_audio = bypass_mode ? (adc_audio <<< 2) : (cab_out >>> 2);
 
 // ── I2S Transmitter (DAC) ──────────────────────────────────────────────────
 i2s_tx u_tx (
@@ -283,7 +310,7 @@ i2s_tx u_tx (
     .lrck    (lrck),             // internal lrck (same signal driving adc_lrck pin)
     .audio_l (dac_audio),
     .audio_r (dac_audio),        // mono: same signal both channels
-    .load    (cab_valid),
+    .load    (bypass_mode ? adc_valid : cab_valid),
     .dout    (dac_din)
 );
 
@@ -342,6 +369,6 @@ assign led[1] = ~act_led;
 assign led[2] = ~vu[0];
 assign led[3] = ~vu[1];
 assign led[4] = ~vu[2];
-assign led[5] = ~vu[3];
+assign led[5] = ~bypass_mode;  // lit when bypass active
 
 endmodule
