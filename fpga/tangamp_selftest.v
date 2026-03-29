@@ -85,6 +85,21 @@ always @(posedge clk_27m or negedge rst_n) begin
     end
 end
 
+// ── Noise Gate (suppress hiss when not playing) ─────────────────────────
+wire signed [31:0] gated_in;
+
+noise_gate #(
+    .FP_FRAC  (16),
+    .FP_WIDTH (32)
+) ngate (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (sample_en),
+    .audio_in  (audio_in),
+    .audio_out (gated_in),
+    .threshold (8'h10)       // quiet threshold, tune later with pot
+);
+
 // ── Negative Feedback Subtraction ────────────────────────────────────────
 wire signed [31:0] nfb_signal;
 reg  signed [31:0] triode_input;
@@ -93,7 +108,7 @@ always @(posedge clk_27m or negedge rst_n) begin
     if (!rst_n)
         triode_input <= 0;
     else if (sample_en)
-        triode_input <= audio_in - nfb_signal;
+        triode_input <= gated_in - nfb_signal;
 end
 
 // ── 2x Oversampling + Triode Engine ─────────────────────────────────────
