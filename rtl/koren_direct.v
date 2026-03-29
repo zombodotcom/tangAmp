@@ -63,6 +63,14 @@ localparam signed [FP_WIDTH-1:0] POWER_ED_STEP_FP = 32'sd624;
 // 1.0 in Q16.16
 localparam signed [FP_WIDTH-1:0] ONE_FP = 32'sd65536;
 
+// Reciprocal constants for division-free LUT indexing and scaling.
+// Pattern: replace (x / C) with (x * INV_C) >>> N, using DSP multiplies
+// instead of ~700-LUT dividers.
+localparam signed [63:0] INV_SQRT_VPK_STEP = 64'sd13765;    // round(2^32 / 312015)
+localparam signed [63:0] INV_SOFTPLUS_STEP = 64'sd344065;   // round(2^32 / 12483)
+localparam signed [63:0] INV_POWER_ED_STEP = 64'sd6882960;  // round(2^32 / 624)
+localparam signed [63:0] INV_KOREN_KG1     = 64'sd3292405;  // round(2^48 / 85492203)
+
 // ============================================================================
 // 1D LUT Memory (tiny -- fits in distributed RAM / registers)
 // ============================================================================
@@ -129,43 +137,6 @@ reg signed [63:0] tmp64b;
 reg signed [63:0] tmp64c;
 
 // ============================================================================
-// LUT Index + Fraction Calculator
-// Computes: idx = floor((x - x_min) / step), frac = remainder as Q0.16
-// ============================================================================
-
-// Helper: compute index and fraction for a 1D LUT lookup
-// Returns idx in lower KLUT_BITS, frac in upper 16 bits
-function automatic [FP_WIDTH-1:0] lut_index_frac;
-    input signed [FP_WIDTH-1:0] x;
-    input signed [FP_WIDTH-1:0] x_min;
-    input signed [FP_WIDTH-1:0] step;
-    reg signed [63:0] offset;
-    reg signed [63:0] div_result;
-    reg [KLUT_BITS-1:0] idx;
-    reg [FP_FRAC-1:0] frac;
-    begin
-        offset = x - x_min;
-        if (offset < 0) begin
-            idx = 0;
-            frac = 0;
-        end else begin
-            // offset is in Q16.16, step is in Q16.16
-            // We want: idx.frac = offset / step (result is a fixed-point number)
-            // Shift offset left by 16 to get extra precision for fraction
-            div_result = (offset <<< FP_FRAC) / step;
-            if (div_result >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
-                idx = KLUT_SIZE - 2;  // clamp to second-to-last for interpolation
-                frac = {FP_FRAC{1'b1}};  // 0.9999...
-            end else begin
-                idx = div_result[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
-                frac = div_result[FP_FRAC-1 : 0];
-            end
-        end
-        lut_index_frac = {frac, {(FP_WIDTH - FP_FRAC - KLUT_BITS){1'b0}}, idx};
-    end
-endfunction
-
-// ============================================================================
 // Main State Machine
 // ============================================================================
 always @(posedge clk or negedge rst_n) begin
@@ -201,19 +172,20 @@ always @(posedge clk or negedge rst_n) begin
             // Compute LUT index and fractional part
             begin
                 reg signed [63:0] offset;
-                reg signed [63:0] div_r;
+                reg signed [63:0] mul_r;
 
                 offset = vpk_r - SQRT_VPK_MIN_FP;
                 if (offset < 0) offset = 0;
 
-                div_r = (offset <<< FP_FRAC) / SQRT_VPK_STEP_FP;
+                // Reciprocal multiply: (offset << 16) * INV >>> 32
+                mul_r = (offset <<< FP_FRAC) * INV_SQRT_VPK_STEP >>> 32;
 
-                if (div_r >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
+                if (mul_r >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
                     sqrt_idx  <= KLUT_SIZE - 2;
                     sqrt_frac <= ONE_FP - 1;
                 end else begin
-                    sqrt_idx  <= div_r[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
-                    sqrt_frac <= div_r[FP_FRAC-1 : 0];
+                    sqrt_idx  <= mul_r[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
+                    sqrt_frac <= mul_r[FP_FRAC-1 : 0];
                 end
             end
 
@@ -283,7 +255,8 @@ always @(posedge clk or negedge rst_n) begin
                     reg signed [FP_WIDTH-1:0] sp_f;
 
                     sp_offset = inner_val - SOFTPLUS_MIN_FP;
-                    sp_div = (sp_offset <<< FP_FRAC) / SOFTPLUS_STEP_FP;
+                    // Reciprocal multiply: (offset << 16) * INV >>> 32
+                    sp_div = (sp_offset <<< FP_FRAC) * INV_SOFTPLUS_STEP >>> 32;
 
                     if (sp_div >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
                         sp_i = KLUT_SIZE - 2;
@@ -328,7 +301,8 @@ always @(posedge clk or negedge rst_n) begin
             end else if (ed_val >= POWER_ED_MAX_FP) begin
                 // Clamp to max LUT value / kg1
                 // power_lut[KLUT_SIZE-1] / kg1
-                tmp64 = ($signed({1'b0, power_lut[KLUT_SIZE-1]}) <<< FP_FRAC) / $signed(KOREN_KG1_FP);
+                // Reciprocal multiply: (val * INV_KG1) >>> 32  (since 2^48 / KG1, shift 48-16=32)
+                tmp64 = $signed({1'b0, power_lut[KLUT_SIZE-1]}) * INV_KOREN_KG1 >>> 32;
                 ip_out <= tmp64[31:0];
             end else begin
                 // LUT lookup with interpolation
@@ -341,7 +315,8 @@ always @(posedge clk or negedge rst_n) begin
                     reg signed [63:0] p_tmp;
 
                     p_offset = ed_val - POWER_ED_MIN_FP;
-                    p_div = (p_offset <<< FP_FRAC) / POWER_ED_STEP_FP;
+                    // Reciprocal multiply: (offset << 16) * INV >>> 32
+                    p_div = (p_offset <<< FP_FRAC) * INV_POWER_ED_STEP >>> 32;
 
                     if (p_div >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
                         p_i = KLUT_SIZE - 2;
@@ -357,8 +332,8 @@ always @(posedge clk or negedge rst_n) begin
                              $signed({1'b0, power_lut[p_i]}));
                     p_interp = $signed({1'b0, power_lut[p_i]}) + p_tmp[47:16];
 
-                    // Ip = power_interp / kg1
-                    tmp64 = ($signed(p_interp) <<< FP_FRAC) / $signed(KOREN_KG1_FP);
+                    // Ip = power_interp / kg1 (reciprocal multiply)
+                    tmp64 = $signed(p_interp) * INV_KOREN_KG1 >>> 32;
                     ip_out <= tmp64[31:0];
                 end
             end
