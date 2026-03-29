@@ -257,6 +257,21 @@ output_transformer xformer (
     .out_valid (xf_valid)
 );
 
+// ── Power Supply Sag (B+ droop tracker, no audio modification) ─────────
+// Tracks envelope of post-transformer signal; b_plus output is
+// informational — will feed back to triode engine as dynamic Vpp later.
+wire signed [31:0] b_plus_out;
+
+power_supply_sag #(
+    .SAG_SHIFT (3)   // moderate sag
+) psu_sag (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (xf_valid),
+    .audio_in  (xf_out),
+    .b_plus    (b_plus_out)
+);
+
 // ── Stage 4: Cabinet FIR at 48kHz ──────────────────────────────────────
 wire signed [31:0] cab_out;
 wire cab_valid;
