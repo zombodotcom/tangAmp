@@ -285,7 +285,7 @@ always @(posedge clk or negedge rst_n) begin
             // tmp64[47:16] = vpk/kp in Q16.16
 
             // Then * softplus
-            tmp64b = tmp64[47:16] * $signed(softplus_val);
+            tmp64b = $signed(tmp64[47:16]) * $signed(softplus_val);
             ed_val <= (tmp64b[47:16] < 0) ? 0 : tmp64b[47:16];
 
             // Compute power LUT index from ed_val
