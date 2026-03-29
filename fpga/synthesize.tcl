@@ -7,6 +7,8 @@ add_file ../rtl/tone_stack_iir.v
 add_file ../rtl/output_transformer.v
 add_file ../rtl/nfb_register.v
 add_file ../rtl/cabinet_fir.v
+add_file ../rtl/power_supply_sag.v
+add_file ../rtl/noise_gate.v
 add_file ../data/ip_lut.hex
 add_file ../data/dip_dvgk_lut.hex
 add_file ../data/ip_lut_6l6.hex
