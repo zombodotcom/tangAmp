@@ -501,7 +501,7 @@ always @(posedge clk or negedge rst_n) begin
                 end
             end else begin
                 // Seed: 1/det ≈ 2^(2*FP_FRAC - msb) in Q16.16
-                inv_det <= 64'sd1 <<< (FP_FRAC * 2 - det_msb);
+                inv_det <= (det_msb > FP_FRAC * 2) ? 64'sd1 : (64'sd1 <<< (FP_FRAC * 2 - det_msb));
                 state <= ST_NR_RECIP;
             end
         end
