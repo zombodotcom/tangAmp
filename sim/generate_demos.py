@@ -12,11 +12,12 @@ FS = 48000.0
 VB, RP, RG, RK, CIN = 200.0, 100000.0, 1000000.0, 1500.0, 22e-9
 
 TUBES = {
-    "12AX7": dict(mu=100.0, ex=1.4, kg1=1060.0, kp=600.0, kvb=300.0),
-    "12AU7": dict(mu=21.5, ex=1.35, kg1=1180.0, kp=84.0, kvb=300.0),
-    "6SL7": dict(mu=70.0, ex=1.4, kg1=1060.0, kp=600.0, kvb=300.0),
-    "EL34": dict(mu=11.0, ex=1.35, kg1=650.0, kp=60.0, kvb=24.0),
-    "6L6": dict(mu=8.7, ex=1.35, kg1=1460.0, kp=48.0, kvb=12.0),
+    # Fitted to RCA/manufacturer datasheets (matches amp_sim.py and tube_lut_gen.py)
+    "12AX7": dict(mu=92.08, ex=1.29, kg1=1304.71, kp=561.08, kvb=15101.91),
+    "12AU7": dict(mu=27.48, ex=1.03, kg1=466.13,  kp=135.10, kvb=24224.55),
+    "6SL7":  dict(mu=90.41, ex=1.25, kg1=597.32,  kp=511.97, kvb=6747.79),
+    "EL34":  dict(mu=10.98, ex=1.42, kg1=249.65,  kp=43.2,   kvb=333.0),
+    "6L6":   dict(mu=10.11, ex=1.37, kg1=406.6,   kp=31.2,   kvb=640.7),
 }
 
 

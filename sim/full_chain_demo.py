@@ -29,7 +29,7 @@ CIN = 22e-9
 CK  = 22e-6
 FS  = 48000.0
 
-MU, EX, KG1, KP, KVB = 100.0, 1.4, 1060.0, 600.0, 300.0
+MU, EX, KG1, KP, KVB = 92.08, 1.29, 1304.71, 561.08, 15101.91  # fitted 12AX7
 
 tau_hp = RG * CIN
 k_hp = 2.0 * FS * tau_hp
