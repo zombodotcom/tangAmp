@@ -100,16 +100,6 @@ localparam signed [FP_WIDTH-1:0] IG_VGK_MAX_FP = 32'sd131072;
 localparam signed [FP_WIDTH-1:0] IG_VGK_STEP_FP = 32'sd2080;
 localparam integer RG_INT = 1000000;
 
-// Reciprocal constants for replacing division by compile-time constants
-// INV_X = round(2^32 / X), used as: (numerator * INV_X) >>> 32
-localparam signed [63:0] INV_VPK_RANGE = 64'sd14317;       // 2^32 / (VPK_MAX_MV - VPK_MIN_MV) = 2^32 / 300000
-localparam signed [63:0] INV_VGK_RANGE = 64'sd1073742;     // 2^32 / (VGK_MAX_MV - VGK_MIN_MV) = 2^32 / 4000
-localparam signed [63:0] INV_VPK_RANGE_PA = 64'sd8590;     // 2^32 / (VPK_MAX_MV_PA - VPK_MIN_MV_PA) = 2^32 / 500000
-localparam signed [63:0] INV_VGK_RANGE_PA = 64'sd85899;    // 2^32 / (VGK_MAX_MV_PA - VGK_MIN_MV_PA) = 2^32 / 50000
-localparam signed [63:0] INV_IG_VGK_STEP = 64'sd2065081;   // ceil(2^32 / 2080)
-localparam signed [63:0] INV_IP_SCALE = 64'sd429497;       // 2^32 / 10000
-localparam signed [63:0] INV_DIP_SCALE = 64'sd42950;       // 2^32 / 100000
-
 reg signed [15:0] ig_lut  [0:IG_LUT_SIZE-1];
 reg signed [15:0] dig_lut [0:IG_LUT_SIZE-1];
 
@@ -129,7 +119,7 @@ function automatic [LUT_BITS-1:0] vpk_to_idx;
         tmp = (vpk_fp * 1000) >>> FP_FRAC;
         if (tmp < VPK_MIN_MV) tmp = VPK_MIN_MV;
         if (tmp > VPK_MAX_MV) tmp = VPK_MAX_MV;
-        vpk_to_idx = (($signed(tmp - VPK_MIN_MV) * (LUT_SIZE-1)) * INV_VPK_RANGE) >>> 32;
+        vpk_to_idx = ((tmp - VPK_MIN_MV) * (LUT_SIZE-1)) / (VPK_MAX_MV - VPK_MIN_MV);
     end
 endfunction
 
@@ -140,7 +130,7 @@ function automatic [LUT_BITS-1:0] vgk_to_idx;
         tmp = (vgk_fp * 1000) >>> FP_FRAC;
         if (tmp < VGK_MIN_MV) tmp = VGK_MIN_MV;
         if (tmp > VGK_MAX_MV) tmp = VGK_MAX_MV;
-        vgk_to_idx = (($signed(tmp - VGK_MIN_MV) * (LUT_SIZE-1)) * INV_VGK_RANGE) >>> 32;
+        vgk_to_idx = ((tmp - VGK_MIN_MV) * (LUT_SIZE-1)) / (VGK_MAX_MV - VGK_MIN_MV);
     end
 endfunction
 
@@ -152,7 +142,7 @@ function automatic [LUT_BITS-1:0] vpk_to_idx_pa;
         tmp = (vpk_fp * 1000) >>> FP_FRAC;
         if (tmp < VPK_MIN_MV_PA) tmp = VPK_MIN_MV_PA;
         if (tmp > VPK_MAX_MV_PA) tmp = VPK_MAX_MV_PA;
-        vpk_to_idx_pa = (($signed(tmp - VPK_MIN_MV_PA) * (LUT_SIZE-1)) * INV_VPK_RANGE_PA) >>> 32;
+        vpk_to_idx_pa = ((tmp - VPK_MIN_MV_PA) * (LUT_SIZE-1)) / (VPK_MAX_MV_PA - VPK_MIN_MV_PA);
     end
 endfunction
 
@@ -163,7 +153,7 @@ function automatic [LUT_BITS-1:0] vgk_to_idx_pa;
         tmp = (vgk_fp * 1000) >>> FP_FRAC;
         if (tmp < VGK_MIN_MV_PA) tmp = VGK_MIN_MV_PA;
         if (tmp > VGK_MAX_MV_PA) tmp = VGK_MAX_MV_PA;
-        vgk_to_idx_pa = (($signed(tmp - VGK_MIN_MV_PA) * (LUT_SIZE-1)) * INV_VGK_RANGE_PA) >>> 32;
+        vgk_to_idx_pa = ((tmp - VGK_MIN_MV_PA) * (LUT_SIZE-1)) / (VGK_MAX_MV_PA - VGK_MIN_MV_PA);
     end
 endfunction
 
@@ -176,7 +166,7 @@ function automatic [IG_LUT_BITS-1:0] vgk_to_ig_idx;
         else if (vgk_fp >= IG_VGK_MAX_FP)
             vgk_to_ig_idx = IG_LUT_SIZE - 1;
         else begin
-            tmp = ($signed({vgk_fp, 16'b0}) * INV_IG_VGK_STEP) >>> 32;
+            tmp = ($signed({vgk_fp, 16'b0})) / $signed(IG_VGK_STEP_FP);
             vgk_to_ig_idx = tmp[IG_LUT_BITS-1:0];
         end
     end
@@ -186,18 +176,16 @@ endfunction
 // State Machine
 // ============================================================================
 
-localparam ST_IDLE      = 4'd0;
-localparam ST_LOAD      = 4'd1;   // Load state bank for current stage
-localparam ST_HP        = 4'd2;
-localparam ST_NR_ADDR   = 4'd3;
-localparam ST_NR_READ   = 4'd4;
-localparam ST_NR_CONV   = 4'd5;
-localparam ST_NR_STEP   = 4'd6;
-localparam ST_NR_RECIP  = 4'd7;   // Newton reciprocal iteration 1
-localparam ST_NR_RECIP2 = 4'd8;   // Newton reciprocal iteration 2 + apply
-localparam ST_OUTPUT    = 4'd9;
-localparam ST_STORE     = 4'd10;  // Store state bank, advance stage
-localparam ST_DONE      = 4'd11;
+localparam ST_IDLE    = 4'd0;
+localparam ST_LOAD    = 4'd1;   // Load state bank for current stage
+localparam ST_HP      = 4'd2;
+localparam ST_NR_ADDR = 4'd3;
+localparam ST_NR_READ = 4'd4;
+localparam ST_NR_CONV = 4'd5;
+localparam ST_NR_STEP = 4'd6;
+localparam ST_OUTPUT  = 4'd7;
+localparam ST_STORE   = 4'd8;   // Store state bank, advance stage
+localparam ST_DONE    = 4'd9;
 
 reg [3:0] state;
 
@@ -255,14 +243,6 @@ reg signed [63:0] j11, j12, j21, j22;
 reg signed [63:0] det;
 reg signed [63:0] dIp_num, dIg_num;
 reg signed [63:0] temp_b;
-
-// Newton-Raphson reciprocal registers (for 1/det computation)
-reg signed [63:0] inv_det;       // Current reciprocal estimate
-reg signed [63:0] saved_dIp_num; // Saved numerators across states
-reg signed [63:0] saved_dIg_num;
-reg               det_neg;       // Sign of det
-reg        [63:0] abs_det;       // |det|
-reg        [5:0]  det_msb;       // MSB position of |det|
 
 reg signed [FP_WIDTH-1:0] vp_dc;
 reg [15:0] sample_count;
@@ -431,23 +411,25 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Convert LUT raw to Q16.16 ─────────────────────────────────
         ST_NR_CONV: begin
-            ip_model    <= ($signed(ip_raw) * INV_IP_SCALE) >>> 16;
-            dip_vgk_val <= ($signed(dip_vgk_raw) * INV_DIP_SCALE) >>> 16;
+            ip_model    <= ($signed(ip_raw) <<< FP_FRAC) / IP_SCALE;
+            dip_vgk_val <= ($signed(dip_vgk_raw) <<< FP_FRAC) / DIP_SCALE;
             state <= ST_NR_STEP;
         end
 
-        // ── Newton step (compute Jacobian, det, numerators) ─────────────
+        // ── Newton step ────────────────────────────────────────────────
         ST_NR_STEP: begin
             f1_val = ip_est - ip_model;
             f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
             // J11 = 1 + dIp/dVpk * RPK
             // Constant approximation: J11 = 2 (halves Newton step, stable convergence)
+            // True value ≈ 1.5-2.5 for 12AX7 at typical operating points.
+            // With 3 iterations, the constant J11=2 converges well enough.
             j11 = ONE_FP <<< 1;
 
             // J12 = dIp/dVgk * Rg
-            temp_b = $signed(dip_vgk_raw) * $signed(RG_INT);
-            j12 = (temp_b * INV_DIP_SCALE) >>> 16;
+            temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
+            j12 = temp_b / DIP_SCALE;
 
             // J21 = 0
             j21 = 0;
@@ -460,94 +442,17 @@ always @(posedge clk or negedge rst_n) begin
             dIp_num = (j22 * $signed(f1_val) - j12 * $signed(f2_val)) >>> FP_FRAC;
             dIg_num = (j11 * $signed(f2_val)) >>> FP_FRAC;
 
-            // Save numerators for use after reciprocal computation
-            saved_dIp_num <= dIp_num;
-            saved_dIg_num <= dIg_num;
+            if (det != 0) begin
+                step = (dIp_num <<< FP_FRAC) / det;
+                ip_est <= ip_est - step;
+                if ((ip_est - step) < 0) ip_est <= 0;
 
-            // Compute |det| and sign for reciprocal
-            det_neg <= det[63];
-            abs_det = det[63] ? -det : det;
-
-            // Find MSB position of |det| (priority encoder)
-            det_msb = (abs_det[63] ? 63 : abs_det[62] ? 62 : abs_det[61] ? 61 :
-                       abs_det[60] ? 60 : abs_det[59] ? 59 : abs_det[58] ? 58 :
-                       abs_det[57] ? 57 : abs_det[56] ? 56 : abs_det[55] ? 55 :
-                       abs_det[54] ? 54 : abs_det[53] ? 53 : abs_det[52] ? 52 :
-                       abs_det[51] ? 51 : abs_det[50] ? 50 : abs_det[49] ? 49 :
-                       abs_det[48] ? 48 : abs_det[47] ? 47 : abs_det[46] ? 46 :
-                       abs_det[45] ? 45 : abs_det[44] ? 44 : abs_det[43] ? 43 :
-                       abs_det[42] ? 42 : abs_det[41] ? 41 : abs_det[40] ? 40 :
-                       abs_det[39] ? 39 : abs_det[38] ? 38 : abs_det[37] ? 37 :
-                       abs_det[36] ? 36 : abs_det[35] ? 35 : abs_det[34] ? 34 :
-                       abs_det[33] ? 33 : abs_det[32] ? 32 : abs_det[31] ? 31 :
-                       abs_det[30] ? 30 : abs_det[29] ? 29 : abs_det[28] ? 28 :
-                       abs_det[27] ? 27 : abs_det[26] ? 26 : abs_det[25] ? 25 :
-                       abs_det[24] ? 24 : abs_det[23] ? 23 : abs_det[22] ? 22 :
-                       abs_det[21] ? 21 : abs_det[20] ? 20 : abs_det[19] ? 19 :
-                       abs_det[18] ? 18 : abs_det[17] ? 17 : abs_det[16] ? 16 :
-                       abs_det[15] ? 15 : abs_det[14] ? 14 : abs_det[13] ? 13 :
-                       abs_det[12] ? 12 : abs_det[11] ? 11 : abs_det[10] ? 10 :
-                       abs_det[9]  ?  9 : abs_det[8]  ?  8 : abs_det[7]  ?  7 :
-                       abs_det[6]  ?  6 : abs_det[5]  ?  5 : abs_det[4]  ?  4 :
-                       abs_det[3]  ?  3 : abs_det[2]  ?  2 : abs_det[1]  ?  1 : 0);
-
-            if (det == 0 || abs_det < 64'd256) begin
-                // det too small — skip update to avoid divergence
-                if (newton_iter < 2'd2) begin
-                    newton_iter <= newton_iter + 1;
-                    state <= ST_NR_ADDR;
-                end else begin
-                    state <= ST_OUTPUT;
-                end
-            end else begin
-                // Seed: 1/det ≈ 2^(2*FP_FRAC - msb) in Q16.16
-                inv_det <= (det_msb > FP_FRAC * 2) ? 64'sd1 : (64'sd1 <<< (FP_FRAC * 2 - det_msb));
-                state <= ST_NR_RECIP;
-            end
-        end
-
-        // ── Newton-Raphson reciprocal iteration 1 ──────────────────────
-        // inv = inv * (2 - |det| * inv)
-        ST_NR_RECIP: begin
-            begin
-                reg signed [63:0] product, correction;
-                product = (abs_det * inv_det) >>> FP_FRAC;
-                correction = (ONE_FP <<< 1) - product;
-                inv_det <= (inv_det * correction) >>> FP_FRAC;
-            end
-            state <= ST_NR_RECIP2;
-        end
-
-        // ── Newton-Raphson reciprocal iteration 2 + apply step ─────────
-        ST_NR_RECIP2: begin
-            begin
-                reg signed [63:0] product, correction, final_inv;
-                reg signed [63:0] step_ip_64, step_ig_64;
-                // Second refinement iteration
-                product = (abs_det * inv_det) >>> FP_FRAC;
-                correction = (ONE_FP <<< 1) - product;
-                final_inv = (inv_det * correction) >>> FP_FRAC;
-
-                // Apply sign: if det was negative, negate reciprocal
-                if (det_neg)
-                    final_inv = -final_inv;
-
-                // Multiply numerators by 1/det to get steps
-                step_ip_64 = (saved_dIp_num * final_inv) >>> FP_FRAC;
-                step_ig_64 = (saved_dIg_num * final_inv) >>> FP_FRAC;
-
-                step = step_ip_64[FP_WIDTH-1:0];
-                step_ig = step_ig_64[FP_WIDTH-1:0];
+                step_ig = (dIg_num <<< FP_FRAC) / det;
+                ig_est <= ig_est - step_ig;
+                if ((ig_est - step_ig) < 0) ig_est <= 0;
             end
 
-            // Apply Newton step
-            ip_est <= ip_est - step;
-            if ((ip_est - step) < 0) ip_est <= 0;
-
-            ig_est <= ig_est - step_ig;
-            if ((ig_est - step_ig) < 0) ig_est <= 0;
-
-            // 3 Newton iterations: iter 0, 1, 2
+            // 3 Newton iterations (was 2): iter 0, 1, 2
             if (newton_iter < 2'd2) begin
                 newton_iter <= newton_iter + 1;
                 state <= ST_NR_ADDR;
