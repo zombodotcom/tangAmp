@@ -2,12 +2,13 @@
 // triode_engine.v
 // Time-multiplexed WDF triode processing engine.
 //
-// Uses a SINGLE set of 3 LUT BRAMs (shared) and processes NUM_STAGES
-// triode stages sequentially per audio sample. Each stage has its own
-// persistent state bank stored in registers.
+// Preamp stages use koren_direct 1D LUT evaluator (384 bytes total) instead
+// of 2D LUTs (32KB each). Numerical derivative via two koren_direct calls.
+// Power amp stage still uses 2D LUTs (separate voltage range).
 //
-// Clock budget: ~18 clocks/iteration × 3 iterations/stage × NUM_STAGES per sample.
-// At NUM_STAGES=3: ~162 clocks out of 562 available.
+// Clock budget per preamp stage: 16 clocks/iteration x 2 iterations = 32
+// Clock budget per power amp stage: 4 clocks/iteration x 3 iterations = 12
+// Total (2 preamp + 1 PA, 2x oversample): (32*2 + 12)*2 + overhead = ~172
 //
 // Fixed point: Q16.16 signed throughout
 // ============================================================================
@@ -22,7 +23,7 @@ module triode_engine #(
     parameter IP_SCALE    = 10000,
     parameter DIP_SCALE   = 100000,
     parameter DIP_VPK_SCALE = 10000000,
-    // 12AX7 preamp ranges
+    // 12AX7 preamp ranges (used only for power amp LUT indexing now)
     parameter integer VPK_MIN_MV = 0,
     parameter integer VPK_MAX_MV = 300000,
     parameter integer VGK_MIN_MV = -4000,
@@ -48,7 +49,7 @@ module triode_engine #(
 // 12AX7 preamp constants
 localparam signed [FP_WIDTH-1:0] VB_FP_PRE = 200 * (1 << FP_FRAC);
 localparam integer RP_INT_PRE  = 100000;
-localparam integer RPK_INT_PRE = 100000;  // RP + R_cathode (R_cath ≈ 0)
+localparam integer RPK_INT_PRE = 100000;  // RP + R_cathode (R_cath ~ 0)
 
 // 6L6 power amp constants (triode-connected)
 localparam signed [FP_WIDTH-1:0] VB_FP_PA = 400 * (1 << FP_FRAC);
@@ -73,27 +74,27 @@ localparam signed [FP_WIDTH-1:0] VP_DC_INIT = 146 * (1 << FP_FRAC);
 localparam DC_SHIFT = 8;
 localparam DC_SETTLE_SAMPLES = 10000;
 
+// Numerical derivative step: h = 0.01V = 655 in Q16.16
+// dIp/dVgk ~= (Ip(Vpk, Vgk+h) - Ip(Vpk, Vgk)) / h
+// In Q16.16: result = (ip2 - ip1) * INV_H where INV_H = round(2^16 / 655) = 100
+localparam signed [FP_WIDTH-1:0] DERIV_H_FP = 32'sd655;  // 0.01V
+localparam signed [FP_WIDTH-1:0] INV_H      = 32'sd100;  // 1/h in Q16.16 units
+
 // ============================================================================
-// LUT Memory (shared across all stages)
+// LUT Memory -- only power amp 2D LUTs remain (preamp uses koren_direct)
 // ============================================================================
 
-// 12AX7 preamp LUTs (ip + dip/dvgk only — dip/dvpk dropped to fit BSRAM)
-reg signed [15:0] ip_lut      [0 : LUT_SIZE*LUT_SIZE - 1];
-reg signed [15:0] dip_vgk_lut [0 : LUT_SIZE*LUT_SIZE - 1];
-
-// 6L6 power amp LUTs
+// 6L6 power amp LUTs (kept -- different voltage range from 12AX7)
 reg signed [15:0] ip_lut_pa      [0 : LUT_SIZE*LUT_SIZE - 1];
 reg signed [15:0] dip_vgk_lut_pa [0 : LUT_SIZE*LUT_SIZE - 1];
 
 initial begin
-    $readmemh("data/ip_lut.hex",           ip_lut);
-    $readmemh("data/dip_dvgk_lut.hex",     dip_vgk_lut);
     $readmemh("data/ip_lut_6l6.hex",       ip_lut_pa);
     $readmemh("data/dip_dvgk_lut_6l6.hex", dip_vgk_lut_pa);
 end
 
 
-// Grid current LUTs (shared across all stages)
+// Grid current LUTs (shared across all stages, tiny -- 64 entries each)
 localparam IG_LUT_SIZE = 64;
 localparam IG_LUT_BITS = 6;
 localparam signed [FP_WIDTH-1:0] IG_VGK_MAX_FP = 32'sd131072;
@@ -109,32 +110,35 @@ initial begin
 end
 
 // ============================================================================
-// LUT Address Functions
+// Koren Direct Evaluator (single instance, shared across all preamp stages)
 // ============================================================================
 
-function automatic [LUT_BITS-1:0] vpk_to_idx;
-    input signed [FP_WIDTH-1:0] vpk_fp;
-    reg signed [63:0] tmp;
-    begin
-        tmp = (vpk_fp * 1000) >>> FP_FRAC;
-        if (tmp < VPK_MIN_MV) tmp = VPK_MIN_MV;
-        if (tmp > VPK_MAX_MV) tmp = VPK_MAX_MV;
-        vpk_to_idx = ((tmp - VPK_MIN_MV) * (LUT_SIZE-1)) / (VPK_MAX_MV - VPK_MIN_MV);
-    end
-endfunction
+reg         koren_start;
+reg  signed [FP_WIDTH-1:0] koren_vpk;
+reg  signed [FP_WIDTH-1:0] koren_vgk;
+wire signed [FP_WIDTH-1:0] koren_ip;
+wire        koren_done;
 
-function automatic [LUT_BITS-1:0] vgk_to_idx;
-    input signed [FP_WIDTH-1:0] vgk_fp;
-    reg signed [63:0] tmp;
-    begin
-        tmp = (vgk_fp * 1000) >>> FP_FRAC;
-        if (tmp < VGK_MIN_MV) tmp = VGK_MIN_MV;
-        if (tmp > VGK_MAX_MV) tmp = VGK_MAX_MV;
-        vgk_to_idx = ((tmp - VGK_MIN_MV) * (LUT_SIZE-1)) / (VGK_MAX_MV - VGK_MIN_MV);
-    end
-endfunction
+koren_direct #(
+    .FP_FRAC  (FP_FRAC),
+    .FP_WIDTH (FP_WIDTH)
+) koren_eval (
+    .clk    (clk),
+    .rst_n  (rst_n),
+    .start  (koren_start),
+    .vpk    (koren_vpk),
+    .vgk    (koren_vgk),
+    .ip_out (koren_ip),
+    .done   (koren_done)
+);
 
-// Power amp LUT address functions (wider voltage ranges)
+// Saved result from first koren evaluation (for numerical derivative)
+reg signed [FP_WIDTH-1:0] koren_ip1_saved;
+
+// ============================================================================
+// Power Amp LUT Address Functions (kept for power amp stage)
+// ============================================================================
+
 function automatic [LUT_BITS-1:0] vpk_to_idx_pa;
     input signed [FP_WIDTH-1:0] vpk_fp;
     reg signed [63:0] tmp;
@@ -176,16 +180,18 @@ endfunction
 // State Machine
 // ============================================================================
 
-localparam ST_IDLE    = 4'd0;
-localparam ST_LOAD    = 4'd1;   // Load state bank for current stage
-localparam ST_HP      = 4'd2;
-localparam ST_NR_ADDR = 4'd3;
-localparam ST_NR_READ = 4'd4;
-localparam ST_NR_CONV = 4'd5;
-localparam ST_NR_STEP = 4'd6;
-localparam ST_OUTPUT  = 4'd7;
-localparam ST_STORE   = 4'd8;   // Store state bank, advance stage
-localparam ST_DONE    = 4'd9;
+localparam ST_IDLE      = 4'd0;
+localparam ST_LOAD      = 4'd1;   // Load state bank for current stage
+localparam ST_HP        = 4'd2;
+localparam ST_NR_ADDR   = 4'd3;
+localparam ST_NR_EVAL1  = 4'd4;   // Koren eval #1: Ip(Vpk, Vgk) -- preamp only
+localparam ST_NR_EVAL2  = 4'd5;   // Koren eval #2: Ip(Vpk, Vgk+h) -- preamp only
+localparam ST_NR_DERIV  = 4'd6;   // Compute numerical derivative -- preamp only
+localparam ST_NR_READ   = 4'd7;   // BRAM read -- power amp only
+localparam ST_NR_CONV   = 4'd8;   // Convert raw to Q16.16 -- power amp only
+localparam ST_NR_STEP   = 4'd9;
+localparam ST_OUTPUT    = 4'd10;
+localparam ST_STORE     = 4'd11;  // Store state bank, advance stage
 
 reg [3:0] state;
 
@@ -223,6 +229,9 @@ reg signed [FP_WIDTH-1:0] ip_prev;
 reg signed [FP_WIDTH-1:0] vpk_est;
 reg signed [FP_WIDTH-1:0] vgk_est;
 reg [1:0] newton_iter;
+// Max Newton iterations: 2 for preamp (koren_direct is slower), 3 for power amp (2D LUT is fast)
+localparam [1:0] PREAMP_MAX_ITER = 2'd1;  // 0,1 = 2 iterations
+localparam [1:0] PA_MAX_ITER     = 2'd2;  // 0,1,2 = 3 iterations
 
 reg [LUT_BITS*2-1:0] lut_addr;
 reg signed [15:0] ip_raw;
@@ -320,8 +329,13 @@ always @(posedge clk or negedge rst_n) begin
         fp_val        <= 0;
         step          <= 0;
         stage_out     <= 0;
+        koren_start   <= 1'b0;
+        koren_vpk     <= 0;
+        koren_vgk     <= 0;
+        koren_ip1_saved <= 0;
     end else begin
-        out_valid <= 1'b0;
+        out_valid   <= 1'b0;
+        koren_start <= 1'b0;
 
         case (state)
 
@@ -377,59 +391,113 @@ always @(posedge clk or negedge rst_n) begin
             state <= ST_NR_ADDR;
         end
 
-        // ── Newton-Raphson: compute LUT address ────────────────────────
+        // ── Newton-Raphson: compute Vpk/Vgk estimates ──────────────────
         ST_NR_ADDR: begin
             temp64 = rpk_active * $signed(ip_est);
             vpk_est <= (vb_active - b_cathode) - temp64[31:0];
             vgk_est <= vgrid - b_cathode;
 
-            // Use different LUT address functions for preamp vs power amp
-            if (is_power_amp)
+            if (is_power_amp) begin
+                // Power amp: use 2D LUT path
                 lut_addr <= vpk_to_idx_pa((vb_active - b_cathode) - temp64[31:0]) * LUT_SIZE
                           + vgk_to_idx_pa(vgrid - b_cathode);
-            else
-                lut_addr <= vpk_to_idx((vb_active - b_cathode) - temp64[31:0]) * LUT_SIZE
-                          + vgk_to_idx(vgrid - b_cathode);
+                state <= ST_NR_READ;
+            end else begin
+                // Preamp: start koren_direct eval #1 with Ip(Vpk, Vgk)
+                koren_vpk   <= (vb_active - b_cathode) - temp64[31:0];
+                koren_vgk   <= vgrid - b_cathode;
+                koren_start <= 1'b1;
+                state       <= ST_NR_EVAL1;
+            end
 
-            state <= ST_NR_READ;
+            // Grid current LUT read (needed for both paths)
+            ig_raw  <= ig_lut[vgk_to_ig_idx(vgrid - b_cathode)];
+            dig_raw <= dig_lut[vgk_to_ig_idx(vgrid - b_cathode)];
         end
 
-        // ── BRAM read latency ──────────────────────────────────────────
-        ST_NR_READ: begin
-            if (is_power_amp) begin
-                ip_raw      <= ip_lut_pa[lut_addr];
-                dip_vgk_raw <= dip_vgk_lut_pa[lut_addr];
-            end else begin
-                ip_raw      <= ip_lut[lut_addr];
-                dip_vgk_raw <= dip_vgk_lut[lut_addr];
+        // ── Preamp: wait for koren eval #1 (Ip at Vgk) ────────────────
+        ST_NR_EVAL1: begin
+            if (koren_done) begin
+                // Save Ip(Vpk, Vgk)
+                koren_ip1_saved <= koren_ip;
+                ip_model        <= koren_ip;
+
+                // Start eval #2: Ip(Vpk, Vgk + h) for numerical derivative
+                koren_vpk   <= vpk_est;
+                koren_vgk   <= vgk_est + DERIV_H_FP;
+                koren_start <= 1'b1;
+                state       <= ST_NR_EVAL2;
             end
-            // Grid current LUT read
-            ig_raw  <= ig_lut[vgk_to_ig_idx(vgk_est)];
-            dig_raw <= dig_lut[vgk_to_ig_idx(vgk_est)];
+        end
+
+        // ── Preamp: wait for koren eval #2 (Ip at Vgk+h) ──────────────
+        ST_NR_EVAL2: begin
+            if (koren_done) begin
+                // koren_ip now has Ip(Vpk, Vgk+h)
+                // koren_ip1_saved has Ip(Vpk, Vgk)
+                state <= ST_NR_DERIV;
+            end
+        end
+
+        // ── Preamp: compute numerical derivative dIp/dVgk ──────────────
+        ST_NR_DERIV: begin
+            // dIp/dVgk = (ip2 - ip1) / h
+            // With h = 0.01V (655 in Q16.16):
+            //   result in Q16.16 = (ip2 - ip1) * INV_H
+            // But INV_H = 100 and we need the result as a raw int16-equivalent
+            // for the Jacobian computation. The DIP_SCALE factor is 100000.
+            //
+            // In the original code: dip_vgk_val = (dip_vgk_raw << 16) / DIP_SCALE
+            // We want dip_vgk_val in Q16.16 directly:
+            //   dip_vgk_val = (ip2 - ip1) * (2^16 / h)
+            //               = (ip2 - ip1) * (65536 / 655)
+            //               = (ip2 - ip1) * 100
+            temp64 = ($signed(koren_ip) - $signed(koren_ip1_saved)) * $signed(INV_H);
+            dip_vgk_val <= temp64[31:0];
+
+            // Also compute dip_vgk_raw equivalent for Jacobian J12 computation
+            // Original: j12 = (dip_vgk_raw * RG_INT) << 16 / DIP_SCALE
+            // We have dip_vgk_val in Q16.16 already, so:
+            //   j12 = dip_vgk_val * RG_INT (in Q16.16)
+            // This is handled in ST_NR_STEP
+
+            state <= ST_NR_STEP;
+        end
+
+        // ── Power amp: BRAM read latency ───────────────────────────────
+        ST_NR_READ: begin
+            ip_raw      <= ip_lut_pa[lut_addr];
+            dip_vgk_raw <= dip_vgk_lut_pa[lut_addr];
             state <= ST_NR_CONV;
         end
 
-        // ── Convert LUT raw to Q16.16 ─────────────────────────────────
+        // ── Power amp: convert LUT raw to Q16.16 ──────────────────────
         ST_NR_CONV: begin
             ip_model    <= ($signed(ip_raw) <<< FP_FRAC) / IP_SCALE;
             dip_vgk_val <= ($signed(dip_vgk_raw) <<< FP_FRAC) / DIP_SCALE;
             state <= ST_NR_STEP;
         end
 
-        // ── Newton step ────────────────────────────────────────────────
+        // ── Newton step (shared for preamp and power amp) ──────────────
         ST_NR_STEP: begin
             f1_val = ip_est - ip_model;
             f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
             // J11 = 1 + dIp/dVpk * RPK
-            // Constant approximation: J11 = 2 (halves Newton step, stable convergence)
-            // True value ≈ 1.5-2.5 for 12AX7 at typical operating points.
-            // With 3 iterations, the constant J11=2 converges well enough.
+            // Constant approximation: J11 = 2
             j11 = ONE_FP <<< 1;
 
             // J12 = dIp/dVgk * Rg
-            temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
-            j12 = temp_b / DIP_SCALE;
+            if (is_power_amp) begin
+                // Power amp: dip_vgk_raw is raw int16 from LUT
+                temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
+                j12 = temp_b / DIP_SCALE;
+            end else begin
+                // Preamp: dip_vgk_val is already Q16.16
+                // J12 = dip_vgk_val * RG_INT
+                temp_b = $signed(dip_vgk_val) * $signed(RG_INT);
+                j12 = temp_b[47:16];
+            end
 
             // J21 = 0
             j21 = 0;
@@ -452,18 +520,21 @@ always @(posedge clk or negedge rst_n) begin
                 if ((ig_est - step_ig) < 0) ig_est <= 0;
             end
 
-            // 3 Newton iterations (was 2): iter 0, 1, 2
-            if (newton_iter < 2'd2) begin
-                newton_iter <= newton_iter + 1;
-                state <= ST_NR_ADDR;
-            end else begin
-                state <= ST_OUTPUT;
+            // Preamp: 2 Newton iterations; Power amp: 3 iterations
+            begin
+                reg [1:0] max_iter;
+                max_iter = is_power_amp ? PA_MAX_ITER : PREAMP_MAX_ITER;
+                if (newton_iter < max_iter) begin
+                    newton_iter <= newton_iter + 1;
+                    state <= ST_NR_ADDR;
+                end else begin
+                    state <= ST_OUTPUT;
+                end
             end
         end
 
-        // ── Compute stage output with grid current ──────────────────────
+        // ── Compute stage output with grid current ─────────────────────
         ST_OUTPUT: begin
-            // Use converged ig_est from 2x2 Newton solver
             begin
                 reg signed [FP_WIDTH-1:0] ip_total;
                 ip_total = ip_est + ig_est;
@@ -508,7 +579,7 @@ always @(posedge clk or negedge rst_n) begin
                 out_valid <= 1'b1;
                 state     <= ST_IDLE;
             end else begin
-                // Attenuate output and feed to next stage
+                // Feed to next stage
                 stage_input   <= stage_out;
                 current_stage <= current_stage + 1;
                 state         <= ST_LOAD;
