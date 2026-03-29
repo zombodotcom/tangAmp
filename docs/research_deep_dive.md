@@ -159,12 +159,56 @@ The frequency-dependent saturation (V/f) we attempted is the correct physics but
 
 ---
 
+## 12. Bernardini 2024: Extended Fixed-Point Solvers (Game-Changer)
+
+**"Wave Digital Extended Fixed-Point Solvers for Circuits With Multiple One-Port Nonlinearities"**
+- Bernardini, Giampiccolo, Bozzo, Fontana (Politecnico di Milano)
+- IEEE TCAS-I, 2024
+- https://ieeexplore.ieee.org/iel8/8919/4358591/10745881.pdf
+
+Family of solvers parameterized by "order" from 0 to infinity:
+- **Order 0:** Standard WD fixed-point iteration (simplest, slowest)
+- **Order 1-2:** Superlinear convergence, **NO Jacobian inverse needed**
+- **Order ∞:** Full Newton-Raphson (fastest, needs Jacobian)
+
+**For tangAmp:** Order-1 solver could replace our 2x2 Newton, eliminating the determinant division entirely. Same convergence speed, simpler implementation. This is the paper to read next.
+
+---
+
+## 13. tangAmp's Position in the Literature
+
+**tangAmp appears to be the only project** implementing WDF triode modeling with Newton-Raphson on a small consumer FPGA ($25 Tang Nano 20K).
+
+| Project | Platform | Nonlinearity | Approach |
+|---------|----------|-------------|----------|
+| Wu/Zhao (IEEE TVLSI 2024) | Xilinx Virtex 7 (huge) | Transistor | WDF + LUT |
+| Hernandez/Hsieh (2016) | NI CompactRIO | BJT/Triode | WDF + LabVIEW |
+| Zhang/Smith (DAFx 2018) | CPU (C++) | Triode (Koren) | WDF blockwise |
+| Korora Audio Spira | FPGA (unknown) | None (effects only) | Direct DSP |
+| FPGAmp (GitHub) | FPGA | None (basic effects) | Direct DSP |
+| **tangAmp** | **Gowin GW2AR-18 ($25)** | **Triode (Koren, Newton)** | **WDF + 2D LUT** |
+
+Commercial products (Kemper, Helix, Fractal) all use DSP chips, not FPGAs (except newest Line 6 Stadium with FPGA+ML accelerator).
+
+---
+
+## 14. Key Papers to Read Next
+
+1. **Bernardini 2024** — extended fixed-point solvers (could eliminate our Jacobian division)
+2. **Chowdhury DAFx-20** — ADAA in WDF (replace oversampling)
+3. **Giampiccolo 2021** — WDF nonlinear transformer (proper OT saturation)
+4. **D'Angelo DAFx-19** — Lambert W for explicit WDF solutions (grid current diode)
+5. **VIOLA framework** (2024) — automatic SPICE-to-WDF conversion (github.com/polimi-ispl/viola)
+
+---
+
 ## Action Items (Priority Order)
 
 1. **Eliminate all `/` operators** — saves ~7000 LUTs, enables everything else
 2. **Implement ADAA** instead of oversampling — better aliasing reduction, cheaper
 3. **Integrate koren_direct.v** (1D LUT) — frees 42 BSRAM blocks
-4. **Add power supply sag** — cheap, big realism improvement
-5. **Add noise gate** (from Blasie thesis pattern) — ~50 LUTs
-6. **MCP3008 SPI for pots** — hardware task
-7. **Frequency-dependent transformer** — feasible after LUT savings from #1
+4. **Investigate Bernardini order-1 solver** — may eliminate Jacobian entirely
+5. **Add power supply sag** — cheap, big realism improvement
+6. **Add noise gate** (from Blasie thesis pattern) — ~50 LUTs
+7. **MCP3008 SPI for pots** — hardware task
+8. **Frequency-dependent transformer** — feasible after LUT savings from #1
