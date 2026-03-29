@@ -260,11 +260,6 @@ reg signed [47:0] step_num;
 reg signed [FP_WIDTH-1:0] step;
 reg signed [FP_WIDTH-1:0] step_ig;
 
-// Secant method registers for J11 estimation
-reg signed [FP_WIDTH-1:0] f1_prev_iter;   // f1 from previous Newton iteration
-reg signed [FP_WIDTH-1:0] ip_prev_iter;   // ip_est from previous Newton iteration
-reg signed [63:0] j11_saved;              // J11 estimated by secant, persisted across samples
-
 // Stage output (before attenuation)
 reg signed [FP_WIDTH-1:0] stage_out;
 
@@ -325,9 +320,6 @@ always @(posedge clk or negedge rst_n) begin
         fp_val        <= 0;
         step          <= 0;
         stage_out     <= 0;
-        f1_prev_iter  <= 0;
-        ip_prev_iter  <= 0;
-        j11_saved     <= ONE_FP <<< 1;  // initial J11 = 2.0
     end else begin
         out_valid <= 1'b0;
 
@@ -430,30 +422,10 @@ always @(posedge clk or negedge rst_n) begin
             f2_val = ig_est - $signed({{16{ig_raw[15]}}, ig_raw});
 
             // J11 = 1 + dIp/dVpk * RPK
-            // Secant method: estimate J11 from consecutive Newton iterations.
-            // iter 0: use j11_saved (persisted from previous sample's secant).
-            // iter 1+: compute secant from consecutive iteration values,
-            //          and update j11_saved for use in next sample's iter 0.
-            if (newton_iter == 0) begin
-                // Use J11 estimated by secant from previous sample
-                j11 = j11_saved;
-            end else begin
-                // Secant approximation: df1/dIp from consecutive iterations
-                if ((ip_est - ip_prev_iter) != 0) begin
-                    j11 = ($signed({f1_val - f1_prev_iter, 16'b0})) / $signed(ip_est - ip_prev_iter);
-                    // Clamp J11 to reasonable range [0.5, 4.0] in Q16.16
-                    if (j11 < 32'sd32768)  j11 = 32'sd32768;   // min 0.5
-                    if (j11 > 32'sd262144) j11 = 32'sd262144;  // max 4.0
-                    // Persist this secant estimate for next sample's iter 0
-                    j11_saved <= j11;
-                end else begin
-                    j11 = j11_saved;  // no change, reuse previous estimate
-                end
-            end
-
-            // Store current values for next iteration's secant
-            f1_prev_iter <= f1_val;
-            ip_prev_iter <= ip_est;
+            // Constant approximation: J11 = 2 (halves Newton step, stable convergence)
+            // True value ≈ 1.5-2.5 for 12AX7 at typical operating points.
+            // With 3 iterations, the constant J11=2 converges well enough.
+            j11 = ONE_FP <<< 1;
 
             // J12 = dIp/dVgk * Rg
             temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
