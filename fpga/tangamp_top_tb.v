@@ -12,7 +12,7 @@ module tangamp_top_tb;
 
 // ── Clock and Reset ─────────────────────────────────────────────────────────
 reg clk_27m;
-reg btn_rst_n;
+reg btn_s1;
 localparam CLK_PERIOD = 37;  // ~27MHz
 
 initial clk_27m = 0;
@@ -21,18 +21,20 @@ always #(CLK_PERIOD/2) clk_27m = ~clk_27m;
 // ── DUT ─────────────────────────────────────────────────────────────────────
 reg  adc_dout_reg;
 wire adc_bck, adc_lrck;
-wire dac_din, dac_bck, dac_lrck;
+wire dac_din;
 wire [5:0] led;
+
+// BCK/LRCK are shared — DAC uses same clocks as ADC
+wire dac_bck  = adc_bck;
+wire dac_lrck = adc_lrck;
 
 tangamp_top dut (
     .clk_27m    (clk_27m),
-    .btn_rst_n  (btn_rst_n),
-    .adc_dout   (adc_dout_reg),
+    .btn_s1     (btn_s1),
     .adc_bck    (adc_bck),
     .adc_lrck   (adc_lrck),
+    .adc_dout   (adc_dout_reg),
     .dac_din    (dac_din),
-    .dac_bck    (dac_bck),
-    .dac_lrck   (dac_lrck),
     .led        (led)
 );
 
@@ -93,7 +95,7 @@ initial begin
 end
 
 always @(posedge clk_27m) begin
-    if (!btn_rst_n) begin
+    if (!btn_s1) begin
         tx_sr <= 32'd0;
         tx_bit_cnt <= 6'd0;
         tx_active <= 1'b0;
@@ -172,7 +174,7 @@ initial begin
 end
 
 always @(posedge clk_27m) begin
-    if (!btn_rst_n) begin
+    if (!btn_s1) begin
         rx_sr <= 24'd0;
         rx_bit_cnt <= 6'd0;
         rx_skip_first <= 1'b0;
@@ -227,7 +229,7 @@ end
 
 // Log input samples (Q16.16 version of what we sent)
 always @(posedge clk_27m) begin
-    if (adc_lrck_fall && btn_rst_n) begin
+    if (adc_lrck_fall && btn_s1) begin
         if (tx_sample_count >= DC_SETTLE && sine_idx > 0) begin
             // Sine table is already Q16.16, just sign-extend to 32 bits
             input_log[in_log_wr] <= {{8{sine_table[sine_idx > 0 ? sine_idx - 1 : SINE_LEN-1][23]}},
@@ -258,9 +260,9 @@ end
 // Total time: 16800 * 576 * 37ns * 2 = ~717ms
 
 initial begin
-    btn_rst_n = 0;
+    btn_s1 = 0;
     #(CLK_PERIOD * 10);
-    btn_rst_n = 1;
+    btn_s1 = 1;
 
     // Run for (12000 + 4800) samples worth of time, with 2x margin for cascade latency
     #((12000 + 4800) * 576 * CLK_PERIOD * 2);

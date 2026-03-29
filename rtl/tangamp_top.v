@@ -16,7 +16,7 @@
 
 module tangamp_top (
     input  wire clk_27m,       // 27MHz crystal, pin 52
-    input  wire btn_rst_n,     // Button S1, pin 88, active low
+    input  wire btn_s1,        // Button S1, pin 88, active low (reset)
 
     // I2S clocks (shared between ADC and DAC — wire both to these pins)
     output wire adc_bck,       // bit clock  (pin 76 → PCM1802.BCK + PCM5102.BCK)
@@ -34,7 +34,7 @@ module tangamp_top (
 reg [1:0] rst_sync;
 reg rst_n;
 always @(posedge clk_27m) begin
-    rst_sync <= {rst_sync[0], btn_rst_n};
+    rst_sync <= {rst_sync[0], btn_s1};
     rst_n <= rst_sync[1];
 end
 
