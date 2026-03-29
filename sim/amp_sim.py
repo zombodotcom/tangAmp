@@ -28,12 +28,16 @@ FS = 48000.0
 # =============================================================================
 
 TUBES = {
-    "12AX7": dict(mu=100.0, ex=1.4, kg1=1060.0, kp=600.0, kvb=300.0),
-    "12AU7": dict(mu=27.48, ex=1.03, kg1=466.13, kp=135.10, kvb=24224.55),
-    "6SL7":  dict(mu=90.41, ex=1.25, kg1=597.32, kp=511.97, kvb=6747.79),
-    "EL34":  dict(mu=10.98, ex=1.42, kg1=249.65, kp=43.2,   kvb=333.0),
-    "6L6":   dict(mu=10.11, ex=1.37, kg1=406.6,  kp=31.2,   kvb=640.7),
-    "300B":  dict(mu=3.95,  ex=1.4,  kg1=1550.0, kp=65.0,   kvb=300.0),
+    # Preamp tubes (fitted to RCA/manufacturer datasheets)
+    "12AX7": dict(mu=92.08, ex=1.29, kg1=1304.71, kp=561.08, kvb=15101.91),  # fitted (10.7% error)
+    "12AU7": dict(mu=27.48, ex=1.03, kg1=466.13,  kp=135.10, kvb=24224.55),  # fitted (2.6% error)
+    "6SL7":  dict(mu=90.41, ex=1.25, kg1=597.32,  kp=511.97, kvb=6747.79),
+    # Power tubes (triode-connected)
+    "EL34":  dict(mu=10.98, ex=1.42, kg1=249.65,  kp=43.2,   kvb=333.0),
+    "6L6":   dict(mu=10.11, ex=1.37, kg1=406.6,   kp=31.2,   kvb=640.7),
+    "300B":  dict(mu=3.95,  ex=1.4,  kg1=1550.0,  kp=65.0,   kvb=300.0),
+    "EL84":  dict(mu=18.39, ex=1.32, kg1=374.24,  kp=85.89,  kvb=3000.0),    # fitted to Mullard datasheet (7.9% error)
+    "6V6":   dict(mu=10.33, ex=1.27, kg1=555.36,  kp=93.89,  kvb=4513.17),   # fitted to RCA datasheet (5.7% error)
 }
 
 
