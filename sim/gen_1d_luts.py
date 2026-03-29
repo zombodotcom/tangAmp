@@ -76,24 +76,6 @@ print(f"    Vpk range: {VPK_MIN:.0f} to {VPK_MAX:.0f} V")
 print(f"    sqrt range: {sqrt_vals[0]:.2f} to {sqrt_vals[-1]:.2f}")
 
 # ============================================================================
-# Generate inv_sqrt LUT: 1/sqrt(kvb + vpk^2)
-# ============================================================================
-# This eliminates the 32-bit division in koren_direct.v (saves ~700 LUTs)
-# vgk / sqrt_val -> vgk * inv_sqrt_val (one DSP multiply instead of divider)
-inv_sqrt_vals = 1.0 / sqrt_vals
-
-# Store as Q16.16 (values range from ~0.003 to ~0.008)
-inv_sqrt_fp = np.round(inv_sqrt_vals * ONE_FP).astype(np.int64)
-inv_sqrt_fp = np.clip(inv_sqrt_fp, 0, 0xFFFFFFFF).astype(np.uint32)
-
-inv_sqrt_path = os.path.join(DATA_DIR, "inv_sqrt_lut.hex")
-with open(inv_sqrt_path, 'w') as f:
-    for val in inv_sqrt_fp:
-        f.write(f"{val:08X}\n")
-print(f"  Written: {inv_sqrt_path} ({LUT_SIZE} entries, Q16.16)")
-print(f"    inv_sqrt range: {inv_sqrt_vals[0]:.6f} to {inv_sqrt_vals[-1]:.6f}")
-
-# ============================================================================
 # Generate softplus LUT: log(1 + exp(x))
 # ============================================================================
 softplus_axis = np.linspace(SOFTPLUS_MIN, SOFTPLUS_MAX, LUT_SIZE)
@@ -172,7 +154,7 @@ print(f"\n  Written: {params_path}")
 # ============================================================================
 # Summary
 # ============================================================================
-total_bytes = 4 * LUT_SIZE * 4  # 4 LUTs, 64 entries, 32-bit each
+total_bytes = 3 * LUT_SIZE * 4  # 3 LUTs, 64 entries, 32-bit each
 print(f"\nTotal 1D LUT memory: {total_bytes} bytes ({total_bytes/1024:.1f} KB)")
 print(f"  vs 2D LUT memory: {128*128*2} bytes ({128*128*2/1024:.1f} KB) per table")
 print(f"  Savings: {(1 - total_bytes/(128*128*2*3))*100:.1f}%")

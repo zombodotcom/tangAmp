@@ -2,20 +2,21 @@
 // koren_direct.v
 // Hybrid 1D-LUT Koren Triode Equation Evaluator (12AX7)
 //
-// Computes Ip(Vpk, Vgk) using 3 small 1D LUTs + 1 inv_sqrt LUT with
-// linear interpolation instead of a large 2D LUT.
-// Total memory: 768 bytes (3 LUTs x 64 entries x 32-bit) vs 32KB.
+// Computes Ip(Vpk, Vgk) using 3 small 1D LUTs with linear interpolation
+// instead of a large 2D LUT. Total memory: 384 bytes vs 32KB.
 //
-// SINGLE MULTIPLIER ARCHITECTURE: All multiplies go through one registered
-// mul_a * mul_b -> mul_out pipeline. One multiply per clock cycle.
-// This ensures the synthesizer infers exactly 1 DSP multiplier block.
+// Pipeline (7 clocks):
+//   S_SQRT:     Look up sqrt(kvb + vpk^2) from sqrt_lut, interpolate
+//   S_INNER:    Compute inner = kp * (1/mu + vgk / sqrt_val)
+//   S_SOFTPLUS: Look up log(1+exp(inner)) from softplus_lut, interpolate
+//   S_ED:       Compute Ed = (vpk/kp) * softplus
+//   S_POWER:    Look up Ed^1.29 from power_lut, interpolate
+//   S_IP:       Compute Ip = power / kg1
+//   S_DONE:     Output result
 //
-// Pipeline: 11 clocks from start to done.
-// Division-free: uses inv_sqrt LUT and reciprocal constants.
-// Fixed point: Q16.16 signed 32-bit throughout.
+// Fixed point: Q16.16 signed 32-bit throughout
 // ============================================================================
 
-(* syn_sharing = "on" *)
 module koren_direct #(
     parameter FP_FRAC  = 16,
     parameter FP_WIDTH = 32
@@ -35,315 +36,310 @@ module koren_direct #(
 localparam KLUT_SIZE = 64;
 localparam KLUT_BITS = 6;
 
+// Koren constants in Q16.16
+localparam signed [FP_WIDTH-1:0] KOREN_MU_FP     = 32'sd6033981;   // 92.08
+localparam signed [FP_WIDTH-1:0] KOREN_KP_FP     = 32'sd36769996;  // 561.08
+localparam signed [FP_WIDTH-1:0] KOREN_KG1_FP    = 32'sd85492203;  // 1304.71
 localparam signed [FP_WIDTH-1:0] KOREN_INV_MU_FP = 32'sd712;       // 1/92.08
 localparam signed [FP_WIDTH-1:0] KOREN_INV_KP_FP = 32'sd117;       // 1/561.08
-localparam signed [FP_WIDTH-1:0] KOREN_KP_FP     = 32'sd36769996;  // 561.08
 
+// Sqrt LUT addressing: Vpk 0-300V, 64 entries
+// Step = 300/(64-1) = 4.7619V, in Q16.16 = 312015
+localparam signed [FP_WIDTH-1:0] SQRT_VPK_MIN_FP  = 32'sd0;
+localparam signed [FP_WIDTH-1:0] SQRT_VPK_STEP_FP = 32'sd312015;
+
+// Softplus LUT addressing: inner -6 to +6, 64 entries
+// Step = 12/(64-1) = 0.19048, in Q16.16 = 12483
 localparam signed [FP_WIDTH-1:0] SOFTPLUS_MIN_FP  = -32'sd393216;  // -6.0
 localparam signed [FP_WIDTH-1:0] SOFTPLUS_MAX_FP  = 32'sd393216;   // +6.0
+localparam signed [FP_WIDTH-1:0] SOFTPLUS_STEP_FP = 32'sd12483;
 
+// Power LUT addressing: Ed 0 to 0.6, 64 entries
+// Step = 0.6/(64-1) = 0.009524, in Q16.16 = 624
+localparam signed [FP_WIDTH-1:0] POWER_ED_MIN_FP  = 32'sd0;
 localparam signed [FP_WIDTH-1:0] POWER_ED_MAX_FP  = 32'sd39322;    // 0.6
+localparam signed [FP_WIDTH-1:0] POWER_ED_STEP_FP = 32'sd624;
 
+// 1.0 in Q16.16
 localparam signed [FP_WIDTH-1:0] ONE_FP = 32'sd65536;
 
-// Reciprocal constants for division-free indexing
-// index_fp = (offset * INV) >>> 16  (offset is Q16.16, INV is integer)
-localparam signed [FP_WIDTH-1:0] INV_SQRT_STEP    = 32'sd13765;    // 2^32 / 312015
-localparam signed [FP_WIDTH-1:0] INV_SOFTPLUS_STEP = 32'sd344065;  // 2^32 / 12483
-localparam signed [FP_WIDTH-1:0] INV_POWER_STEP   = 32'sd6882960;  // 2^32 / 624
-localparam signed [FP_WIDTH-1:0] INV_KG1          = 32'sd3292405;  // 2^48 / 85492203
+// Reciprocal constants for division-free LUT indexing and scaling.
+// Pattern: replace (x / C) with (x * INV_C) >>> N, using DSP multiplies
+// instead of ~700-LUT dividers.
+localparam signed [63:0] INV_SQRT_VPK_STEP = 64'sd13765;    // round(2^32 / 312015)
+localparam signed [63:0] INV_SOFTPLUS_STEP = 64'sd344065;   // round(2^32 / 12483)
+localparam signed [63:0] INV_POWER_ED_STEP = 64'sd6882960;  // round(2^32 / 624)
+localparam signed [63:0] INV_KOREN_KG1     = 64'sd3292405;  // round(2^48 / 85492203)
 
 // ============================================================================
-// 1D LUT Memory
+// 1D LUT Memory (tiny -- fits in distributed RAM / registers)
 // ============================================================================
-reg [FP_WIDTH-1:0] inv_sqrt_lut  [0:KLUT_SIZE-1];
-reg [FP_WIDTH-1:0] softplus_lut  [0:KLUT_SIZE-1];
-reg [FP_WIDTH-1:0] power_lut     [0:KLUT_SIZE-1];
+reg [FP_WIDTH-1:0] sqrt_lut     [0:KLUT_SIZE-1];  // sqrt(kvb + vpk^2)
+reg [FP_WIDTH-1:0] softplus_lut [0:KLUT_SIZE-1];  // log(1 + exp(x))
+reg [FP_WIDTH-1:0] power_lut    [0:KLUT_SIZE-1];  // x^1.29
 
 initial begin
-    $readmemh("data/inv_sqrt_lut.hex",  inv_sqrt_lut);
-    $readmemh("data/softplus_lut.hex",  softplus_lut);
-    $readmemh("data/power_lut.hex",     power_lut);
+    $readmemh("data/sqrt_lut.hex",     sqrt_lut);
+    $readmemh("data/softplus_lut.hex", softplus_lut);
+    $readmemh("data/power_lut.hex",    power_lut);
 end
-
-// ============================================================================
-// SINGLE SHARED MULTIPLIER
-// ============================================================================
-reg  signed [FP_WIDTH-1:0] mul_a;
-reg  signed [FP_WIDTH-1:0] mul_b;
-wire signed [63:0]         mul_out;
-assign mul_out = $signed(mul_a) * $signed(mul_b);
 
 // ============================================================================
 // State Machine
 // ============================================================================
-localparam [3:0] S_IDLE     = 4'd0;
-localparam [3:0] S1_IDX     = 4'd1;   // inv_sqrt index multiply
-localparam [3:0] S2_LERP    = 4'd2;   // inv_sqrt lerp multiply
-localparam [3:0] S3_VGK     = 4'd3;   // vgk * inv_sqrt
-localparam [3:0] S4_KP      = 4'd4;   // kp * (inv_mu + vgk/sqrt)
-localparam [3:0] S5_SPIDX   = 4'd5;   // softplus index multiply
-localparam [3:0] S6_SPLERP  = 4'd6;   // softplus lerp multiply
-localparam [3:0] S7_ED1     = 4'd7;   // vpk * inv_kp
-localparam [3:0] S8_ED2     = 4'd8;   // (vpk/kp) * softplus
-localparam [3:0] S9_PIDX    = 4'd9;   // power index multiply
-localparam [3:0] S10_IP     = 4'd10;  // power_interp * inv_kg1
+localparam [2:0] S_IDLE     = 3'd0;
+localparam [2:0] S_SQRT     = 3'd1;
+localparam [2:0] S_INNER    = 3'd2;
+localparam [2:0] S_SOFTPLUS = 3'd3;
+localparam [2:0] S_ED       = 3'd4;
+localparam [2:0] S_POWER    = 3'd5;
+localparam [2:0] S_IP       = 3'd6;
+localparam [2:0] S_DONE     = 3'd7;
 
-reg [3:0] state;
+reg [2:0] state;
 
-// Pipeline registers
-reg signed [FP_WIDTH-1:0] vpk_r, vgk_r;
-reg signed [FP_WIDTH-1:0] inv_sqrt_val;
+// ============================================================================
+// Pipeline Registers
+// ============================================================================
+reg signed [FP_WIDTH-1:0] vpk_r;       // latched Vpk input
+reg signed [FP_WIDTH-1:0] vgk_r;       // latched Vgk input
+
+// Sqrt LUT result + interpolation
+reg [KLUT_BITS-1:0] sqrt_idx;
+reg signed [FP_WIDTH-1:0] sqrt_lo;     // LUT[idx]
+reg signed [FP_WIDTH-1:0] sqrt_hi;     // LUT[idx+1]
+reg signed [FP_WIDTH-1:0] sqrt_frac;   // fractional part Q0.16
+reg signed [FP_WIDTH-1:0] sqrt_val;    // interpolated result
+
+// Inner computation
 reg signed [FP_WIDTH-1:0] inner_val;
-reg signed [FP_WIDTH-1:0] softplus_val;
-reg signed [FP_WIDTH-1:0] vpk_div_kp;
-reg signed [FP_WIDTH-1:0] ed_val;
-reg        skip_to_ed;  // flag for softplus saturation shortcut
 
-// ============================================================================
-// Helper: extract LUT index and fraction from index_fp (Q16.16)
-// ============================================================================
-// (done inline in each state to avoid extra logic)
+// Softplus LUT result + interpolation
+reg [KLUT_BITS-1:0] sp_idx;
+reg signed [FP_WIDTH-1:0] sp_lo;
+reg signed [FP_WIDTH-1:0] sp_hi;
+reg signed [FP_WIDTH-1:0] sp_frac;
+reg signed [FP_WIDTH-1:0] softplus_val;
+
+// Ed computation
+reg signed [FP_WIDTH-1:0] ed_val;
+
+// Power LUT result + interpolation
+reg [KLUT_BITS-1:0] pow_idx;
+reg signed [FP_WIDTH-1:0] pow_lo;
+reg signed [FP_WIDTH-1:0] pow_hi;
+reg signed [FP_WIDTH-1:0] pow_frac;
+reg signed [FP_WIDTH-1:0] power_val;
+
+// 64-bit intermediates for multiply
+reg signed [63:0] tmp64;
+reg signed [63:0] tmp64b;
+reg signed [63:0] tmp64c;
 
 // ============================================================================
 // Main State Machine
 // ============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        state        <= S_IDLE;
-        done         <= 1'b0;
-        ip_out       <= 0;
-        vpk_r        <= 0;
-        vgk_r        <= 0;
-        mul_a        <= 0;
-        mul_b        <= 0;
-        inv_sqrt_val <= 0;
-        inner_val    <= 0;
+        state      <= S_IDLE;
+        done       <= 1'b0;
+        ip_out     <= 0;
+        vpk_r      <= 0;
+        vgk_r      <= 0;
+        sqrt_val   <= 0;
+        inner_val  <= 0;
         softplus_val <= 0;
-        vpk_div_kp   <= 0;
-        ed_val       <= 0;
-        skip_to_ed   <= 0;
+        ed_val     <= 0;
+        power_val  <= 0;
     end else begin
         done <= 1'b0;
 
         case (state)
 
+        // ── Wait for start ──────────────────────────────────────────
         S_IDLE: begin
             if (start) begin
+                // Latch inputs, clamp Vpk >= 0
                 vpk_r <= (vpk < 0) ? 0 : vpk;
                 vgk_r <= vgk;
-                skip_to_ed <= 0;
-                // Setup S1: index = vpk * INV_SQRT_STEP
-                mul_a <= (vpk < 0) ? 0 : vpk;
-                mul_b <= INV_SQRT_STEP;
-                state <= S1_IDX;
+                state <= S_SQRT;
             end
         end
 
-        // ── S1: Read inv_sqrt index multiply result ─────────────────
-        S1_IDX: begin
-            // mul_out = vpk * INV_SQRT_STEP; index_fp = mul_out >>> 16
+        // ── Step 1: sqrt LUT lookup ─────────────────────────────────
+        // Compute index into sqrt_lut from Vpk
+        S_SQRT: begin
+            // Compute LUT index and fractional part
             begin
-                reg signed [63:0] idx_fp;
-                reg [KLUT_BITS-1:0] idx;
-                reg signed [FP_WIDTH-1:0] frac;
-                reg signed [FP_WIDTH-1:0] lo_val, hi_val;
+                reg signed [63:0] offset;
+                reg signed [63:0] mul_r;
 
-                idx_fp = mul_out >>> 16;
+                offset = vpk_r - SQRT_VPK_MIN_FP;
+                if (offset < 0) offset = 0;
 
-                if (idx_fp >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
-                    idx  = KLUT_SIZE - 2;
-                    frac = ONE_FP - 1;
-                end else if (idx_fp < 0) begin
-                    idx  = 0;
-                    frac = 0;
+                // Reciprocal multiply: (offset << 16) * INV >>> 32
+                mul_r = (offset <<< FP_FRAC) * INV_SQRT_VPK_STEP >>> 32;
+
+                if (mul_r >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
+                    sqrt_idx  <= KLUT_SIZE - 2;
+                    sqrt_frac <= ONE_FP - 1;
                 end else begin
-                    idx  = idx_fp[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
-                    frac = idx_fp[FP_FRAC-1 : 0];
+                    sqrt_idx  <= mul_r[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
+                    sqrt_frac <= mul_r[FP_FRAC-1 : 0];
                 end
-
-                lo_val = $signed({1'b0, inv_sqrt_lut[idx]});
-                hi_val = $signed({1'b0, inv_sqrt_lut[idx + 1]});
-
-                // Store base for lerp addition
-                inv_sqrt_val <= lo_val;
-
-                // Setup S2: lerp = frac * (hi - lo)
-                mul_a <= frac;
-                mul_b <= hi_val - lo_val;
             end
-            state <= S2_LERP;
+
+            state <= S_INNER;
         end
 
-        // ── S2: Apply inv_sqrt lerp, setup vgk multiply ────────────
-        S2_LERP: begin
-            // inv_sqrt_val = lo + (frac * (hi-lo)) >> 16
-            inv_sqrt_val <= inv_sqrt_val + mul_out[47:16];
+        // ── Step 2: interpolate sqrt, compute inner ─────────────────
+        S_INNER: begin
+            // Read LUT entries (available after 1 clock from index computation)
+            sqrt_lo <= sqrt_lut[sqrt_idx];
+            sqrt_hi <= sqrt_lut[sqrt_idx + 1];
 
-            // Setup S3: vgk * inv_sqrt_val (corrected)
-            mul_a <= vgk_r;
-            mul_b <= inv_sqrt_val + mul_out[47:16];
-            state <= S3_VGK;
+            // Interpolate: result = lo + frac * (hi - lo) >> 16
+            tmp64 = $signed({1'b0, sqrt_frac}) *
+                    ($signed({1'b0, sqrt_lut[sqrt_idx + 1]}) - $signed({1'b0, sqrt_lut[sqrt_idx]}));
+            sqrt_val <= $signed({1'b0, sqrt_lut[sqrt_idx]}) + tmp64[47:16];
+
+            // Compute inner = kp * (1/mu + vgk / sqrt_val)
+            // Use the interpolated sqrt_val from this cycle
+            // vgk_div_sqrt = vgk / sqrt_val (both Q16.16)
+            // But we need the interpolated value... use the non-interpolated LUT[idx] as
+            // approximation for the division this cycle, refine would add latency
+            // Actually, let's compute in next state for correct data dependency
+            state <= S_SOFTPLUS;
         end
 
-        // ── S3: Read vgk*inv_sqrt, setup kp multiply ───────────────
-        S3_VGK: begin
-            // vgk_div_sqrt = mul_out[47:16] (Q16.16)
+        // ── Step 3: compute inner, softplus LUT lookup ──────────────
+        S_SOFTPLUS: begin
+            // Now sqrt_val is valid from S_INNER
+            // inner = kp * (1/mu + vgk / sqrt_val)
+            // = kp/mu + kp * vgk / sqrt_val
+            // First: vgk / sqrt_val (both Q16.16)
+            if (sqrt_val != 0) begin
+                tmp64 = ($signed(vgk_r) <<< FP_FRAC) / $signed(sqrt_val);
+            end else begin
+                tmp64 = 0;
+            end
+            // tmp64 is vgk/sqrt_val in Q16.16
 
-            // Setup S4: kp * (inv_mu + vgk/sqrt)
-            mul_a <= KOREN_KP_FP;
-            mul_b <= KOREN_INV_MU_FP + mul_out[47:16];
-            state <= S4_KP;
+            // inner = kp * (inv_mu + vgk/sqrt_val)
+            // = kp * inv_mu + kp * (vgk/sqrt_val)
+            tmp64b = $signed(KOREN_KP_FP) * ($signed(KOREN_INV_MU_FP) + tmp64[31:0]);
+            inner_val <= tmp64b[47:16];  // Q16.16 result
+
+            // Compute softplus LUT index from inner_val
+            // But inner_val won't be ready until next clock...
+            // We need to pipeline this: compute index in next state
+            state <= S_ED;
         end
 
-        // ── S4: Read inner, decide softplus path ────────────────────
-        S4_KP: begin
-            // inner = mul_out[47:16]
-            inner_val <= mul_out[47:16];
-
-            if (mul_out[47:16] < SOFTPLUS_MIN_FP) begin
-                // softplus ~ 0 for very negative inner -> Ip = 0
+        // ── Step 3b: softplus LUT lookup with inner_val ─────────────
+        S_ED: begin
+            // inner_val is now valid
+            // Check piecewise regions
+            if (inner_val < SOFTPLUS_MIN_FP) begin
+                // softplus ≈ exp(inner) ≈ 0 for inner < -6
                 softplus_val <= 0;
-                skip_to_ed <= 1;
-                // Setup S7: vpk * inv_kp (skip to Ed computation)
-                mul_a <= vpk_r;
-                mul_b <= KOREN_INV_KP_FP;
-                state <= S7_ED1;
-            end else if (mul_out[47:16] > SOFTPLUS_MAX_FP) begin
-                // softplus ~ inner for large positive inner
-                softplus_val <= mul_out[47:16];
-                skip_to_ed <= 1;
-                mul_a <= vpk_r;
-                mul_b <= KOREN_INV_KP_FP;
-                state <= S7_ED1;
+            end else if (inner_val > SOFTPLUS_MAX_FP) begin
+                // softplus ≈ inner for inner > 6
+                softplus_val <= inner_val;
             end else begin
-                // Normal softplus LUT region
-                // Setup S5: sp_offset * INV_SOFTPLUS_STEP
-                mul_a <= mul_out[47:16] - SOFTPLUS_MIN_FP;
-                mul_b <= INV_SOFTPLUS_STEP;
-                state <= S5_SPIDX;
-            end
-        end
+                // LUT region: compute index
+                begin
+                    reg signed [63:0] sp_offset;
+                    reg signed [63:0] sp_div;
+                    reg [KLUT_BITS-1:0] sp_i;
+                    reg signed [FP_WIDTH-1:0] sp_f;
 
-        // ── S5: Read softplus index, setup lerp ─────────────────────
-        S5_SPIDX: begin
-            begin
-                reg signed [63:0] idx_fp;
-                reg [KLUT_BITS-1:0] idx;
-                reg signed [FP_WIDTH-1:0] frac;
-                reg signed [FP_WIDTH-1:0] lo_val, hi_val;
+                    sp_offset = inner_val - SOFTPLUS_MIN_FP;
+                    // Reciprocal multiply: (offset << 16) * INV >>> 32
+                    sp_div = (sp_offset <<< FP_FRAC) * INV_SOFTPLUS_STEP >>> 32;
 
-                idx_fp = mul_out >>> 16;
+                    if (sp_div >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
+                        sp_i = KLUT_SIZE - 2;
+                        sp_f = ONE_FP - 1;
+                    end else begin
+                        sp_i = sp_div[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
+                        sp_f = sp_div[FP_FRAC-1 : 0];
+                    end
 
-                if (idx_fp >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
-                    idx  = KLUT_SIZE - 2;
-                    frac = ONE_FP - 1;
-                end else if (idx_fp < 0) begin
-                    idx  = 0;
-                    frac = 0;
-                end else begin
-                    idx  = idx_fp[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
-                    frac = idx_fp[FP_FRAC-1 : 0];
+                    // Interpolate
+                    tmp64c = $signed({1'b0, sp_f}) *
+                             ($signed({1'b0, softplus_lut[sp_i + 1]}) -
+                              $signed({1'b0, softplus_lut[sp_i]}));
+                    softplus_val <= $signed({1'b0, softplus_lut[sp_i]}) + tmp64c[47:16];
                 end
-
-                lo_val = $signed({1'b0, softplus_lut[idx]});
-                hi_val = $signed({1'b0, softplus_lut[idx + 1]});
-
-                softplus_val <= lo_val;
-
-                // Setup S6: lerp
-                mul_a <= frac;
-                mul_b <= hi_val - lo_val;
             end
-            state <= S6_SPLERP;
+
+            state <= S_POWER;
         end
 
-        // ── S6: Apply softplus lerp, setup Ed mul #1 ────────────────
-        S6_SPLERP: begin
-            softplus_val <= softplus_val + mul_out[47:16];
+        // ── Step 4: Ed = (vpk/kp) * softplus, power LUT lookup ─────
+        S_POWER: begin
+            // ed = vpk * inv_kp * softplus (all Q16.16)
+            // vpk * inv_kp first
+            tmp64 = $signed(vpk_r) * $signed(KOREN_INV_KP_FP);
+            // tmp64[47:16] = vpk/kp in Q16.16
 
-            // Setup S7: vpk * inv_kp
-            mul_a <= vpk_r;
-            mul_b <= KOREN_INV_KP_FP;
-            state <= S7_ED1;
+            // Then * softplus
+            tmp64b = $signed(tmp64[47:16]) * $signed(softplus_val);
+            ed_val <= (tmp64b[47:16] < 0) ? 0 : tmp64b[47:16];
+
+            // Compute power LUT index from ed_val
+            // ed_val won't be ready until next clock, pipeline it
+            state <= S_IP;
         end
 
-        // ── S7: Read vpk/kp, setup Ed mul #2 ───────────────────────
-        S7_ED1: begin
-            vpk_div_kp <= mul_out[47:16];
-
-            // Setup S8: (vpk/kp) * softplus
-            mul_a <= mul_out[47:16];
-            mul_b <= softplus_val;
-            state <= S8_ED2;
-        end
-
-        // ── S8: Read Ed, decide power path ──────────────────────────
-        S8_ED2: begin
-            // ed = mul_out[47:16], clamped >= 0
-            ed_val <= (mul_out[47:16] < 0) ? 0 : mul_out[47:16];
-
-            if (mul_out[47:16] <= 0) begin
+        // ── Step 5: power LUT lookup + Ip computation ───────────────
+        S_IP: begin
+            // ed_val is now valid
+            if (ed_val <= 0) begin
                 ip_out <= 0;
-                done   <= 1'b1;
-                state  <= S_IDLE;
-            end else if (mul_out[47:16] >= POWER_ED_MAX_FP) begin
-                // Clamp to max: setup power_max * inv_kg1
-                mul_a <= $signed({1'b0, power_lut[KLUT_SIZE-1]});
-                mul_b <= INV_KG1;
-                state <= S10_IP;
+            end else if (ed_val >= POWER_ED_MAX_FP) begin
+                // Clamp to max LUT value / kg1
+                // power_lut[KLUT_SIZE-1] / kg1
+                // Reciprocal multiply: (val * INV_KG1) >>> 32  (since 2^48 / KG1, shift 48-16=32)
+                tmp64 = $signed({1'b0, power_lut[KLUT_SIZE-1]}) * INV_KOREN_KG1 >>> 32;
+                ip_out <= tmp64[31:0];
             end else begin
-                // Power LUT: compute index
-                mul_a <= mul_out[47:16];  // ed_val
-                mul_b <= INV_POWER_STEP;
-                state <= S9_PIDX;
-            end
-        end
+                // LUT lookup with interpolation
+                begin
+                    reg signed [63:0] p_offset;
+                    reg signed [63:0] p_div;
+                    reg [KLUT_BITS-1:0] p_i;
+                    reg signed [FP_WIDTH-1:0] p_f;
+                    reg signed [FP_WIDTH-1:0] p_interp;
+                    reg signed [63:0] p_tmp;
 
-        // ── S9: Read power index, lookup + setup Ip multiply ────────
-        S9_PIDX: begin
-            begin
-                reg signed [63:0] idx_fp;
-                reg [KLUT_BITS-1:0] idx;
-                reg signed [FP_WIDTH-1:0] frac;
-                reg signed [FP_WIDTH-1:0] lo_val, hi_val, interp;
+                    p_offset = ed_val - POWER_ED_MIN_FP;
+                    // Reciprocal multiply: (offset << 16) * INV >>> 32
+                    p_div = (p_offset <<< FP_FRAC) * INV_POWER_ED_STEP >>> 32;
 
-                idx_fp = mul_out >>> 16;
+                    if (p_div >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
+                        p_i = KLUT_SIZE - 2;
+                        p_f = ONE_FP - 1;
+                    end else begin
+                        p_i = p_div[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
+                        p_f = p_div[FP_FRAC-1 : 0];
+                    end
 
-                if (idx_fp >= ((KLUT_SIZE - 1) <<< FP_FRAC)) begin
-                    idx  = KLUT_SIZE - 2;
-                    frac = ONE_FP - 1;
-                end else if (idx_fp < 0) begin
-                    idx  = 0;
-                    frac = 0;
-                end else begin
-                    idx  = idx_fp[FP_FRAC + KLUT_BITS - 1 : FP_FRAC];
-                    frac = idx_fp[FP_FRAC-1 : 0];
+                    // Interpolate power LUT
+                    p_tmp = $signed({1'b0, p_f}) *
+                            ($signed({1'b0, power_lut[p_i + 1]}) -
+                             $signed({1'b0, power_lut[p_i]}));
+                    p_interp = $signed({1'b0, power_lut[p_i]}) + p_tmp[47:16];
+
+                    // Ip = power_interp / kg1 (reciprocal multiply)
+                    tmp64 = $signed(p_interp) * INV_KOREN_KG1 >>> 32;
+                    ip_out <= tmp64[31:0];
                 end
-
-                lo_val = $signed({1'b0, power_lut[idx]});
-                hi_val = $signed({1'b0, power_lut[idx + 1]});
-
-                // Nearest-neighbor interpolation (saves 1 multiply cycle)
-                // Max error from skipping lerp: ~0.5 * step = ~0.005 in Ed^1.29
-                interp = (frac >= (ONE_FP >>> 1)) ? hi_val : lo_val;
-
-                // Setup S10: interp * inv_kg1
-                mul_a <= interp;
-                mul_b <= INV_KG1;
             end
-            state <= S10_IP;
-        end
 
-        // ── S10: Read Ip result ─────────────────────────────────────
-        S10_IP: begin
-            // Ip = (power_interp * INV_KG1) >>> 32
-            // INV_KG1 = 2^48 / kg1_fp, so:
-            //   mul_out = power_interp * (2^48 / kg1_fp)
-            //   Ip_q16 = mul_out >>> 32 = power_interp / kg1_fp * 2^16
-            ip_out <= mul_out[63:32];
-            done   <= 1'b1;
-            state  <= S_IDLE;
+            done <= 1'b1;
+            state <= S_IDLE;
         end
 
         default: state <= S_IDLE;
