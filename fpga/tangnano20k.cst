@@ -64,3 +64,17 @@ IO_PORT "dac_din"   IO_TYPE=LVCMOS33 DRIVE=8;
 // In tangamp_top.v: dac_bck and dac_lrck are assigned from the same
 // internal signals as adc_bck and adc_lrck, so we only need the ADC pins
 // as outputs. The DAC reads from the same physical wires.
+
+// ── Onboard MicroSD Card Slot (SPI mode) ──────────────────────────────────
+IO_LOC  "sd_clk"    83;
+IO_PORT "sd_clk"    IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "sd_cmd"    82;
+IO_PORT "sd_cmd"    IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "sd_dat0"   84;
+IO_PORT "sd_dat0"   IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC  "sd_dat1"   85;
+IO_PORT "sd_dat1"   IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "sd_dat2"   80;
+IO_PORT "sd_dat2"   IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "sd_dat3"   81;
+IO_PORT "sd_dat3"   IO_TYPE=LVCMOS33 DRIVE=8;

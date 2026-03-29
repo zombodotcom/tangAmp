@@ -23,7 +23,12 @@ module cabinet_fir #(
     input  wire        sample_en,
     input  wire signed [31:0] audio_in,
     output reg  signed [31:0] audio_out,
-    output reg         out_valid
+    output reg         out_valid,
+
+    // Runtime tap write port (from SD card loader)
+    input  wire        tap_wr_en,
+    input  wire [7:0]  tap_wr_addr,
+    input  wire [15:0] tap_wr_data
 );
 
 // ============================================================================
@@ -34,6 +39,12 @@ reg signed [15:0] taps [0:N_TAPS-1];
 
 initial begin
     $readmemh(HEX_FILE, taps);
+end
+
+// Runtime tap write (from SD card loader — overwrites $readmemh defaults)
+always @(posedge clk) begin
+    if (tap_wr_en)
+        taps[tap_wr_addr] <= tap_wr_data;
 end
 
 // ============================================================================

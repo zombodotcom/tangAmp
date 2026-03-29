@@ -36,6 +36,11 @@ module sd_spi_reader (
     output reg  [7:0]  tap_wr_addr,
     output reg  [15:0] tap_wr_data,
 
+    // Raw byte output (for header parsing by sd_ir_loader)
+    output reg         byte_out_valid,
+    output reg  [7:0]  byte_out_data,
+    output reg  [9:0]  byte_out_index,  // 0-511 within sector
+
     // Status
     output reg         init_done,    // SD card initialized successfully
     output reg         read_done,    // Sector read complete
@@ -186,6 +191,9 @@ always @(posedge clk or negedge rst_n) begin
         tap_wr_en      <= 1'b0;
         tap_wr_addr    <= 8'd0;
         tap_wr_data    <= 16'd0;
+        byte_out_valid <= 1'b0;
+        byte_out_data  <= 8'd0;
+        byte_out_index <= 10'd0;
         wait_cnt       <= 16'd0;
         byte_cnt       <= 10'd0;
         retry_cnt      <= 10'd0;
@@ -193,9 +201,10 @@ always @(posedge clk or negedge rst_n) begin
         dummy_cnt      <= 4'd0;
         data_lo        <= 8'd0;
     end else begin
-        spi_start  <= 1'b0;
-        tap_wr_en  <= 1'b0;
-        read_done  <= 1'b0;
+        spi_start      <= 1'b0;
+        tap_wr_en      <= 1'b0;
+        byte_out_valid <= 1'b0;
+        read_done      <= 1'b0;
 
         case (state)
 
@@ -602,6 +611,11 @@ always @(posedge clk or negedge rst_n) begin
                 spi_start   <= 1'b1;
             end
             if (spi_byte_done) begin
+                // Raw byte output for header parsing
+                byte_out_data  <= spi_rx_byte;
+                byte_out_index <= byte_cnt;
+                byte_out_valid <= 1'b1;
+
                 if (byte_cnt[0] == 1'b0) begin
                     // Even byte = low byte of 16-bit tap
                     data_lo <= spi_rx_byte;

@@ -27,9 +27,21 @@ module tangamp_top (
     input  wire adc_dout,      // serial data from PCM1802 ADC (pin 48)
     output wire dac_din,       // serial data to PCM5102 DAC (pin 49)
 
+    // SD card SPI (onboard MicroSD slot)
+    output wire sd_clk,
+    output wire sd_cmd,
+    input  wire sd_dat0,
+    output wire sd_dat1,
+    output wire sd_dat2,
+    output wire sd_dat3,
+
     // Status LEDs
     output wire [5:0] led
 );
+
+// ── SD card unused data lines held high (SPI mode) ────────────────────────
+assign sd_dat1 = 1'b1;
+assign sd_dat2 = 1'b1;
 
 // ── Reset synchronizer (2-FF) ──────────────────────────────────────────────
 reg [1:0] rst_sync;
@@ -268,6 +280,71 @@ power_supply_sag #(
     .b_plus    (b_plus_out)
 );
 
+// ── SD Card SPI Reader + IR Loader ─────────────────────────────────────────
+wire        sd_start_read;
+wire [31:0] sd_sector_addr;
+wire        sd_init_done;
+wire        sd_read_done;
+wire        sd_error;
+wire        sd_byte_valid;
+wire [7:0]  sd_byte_data;
+wire [9:0]  sd_byte_index;
+wire        sd_tap_wr_en;
+wire [7:0]  sd_tap_wr_addr;
+wire [15:0] sd_tap_wr_data;
+wire        ir_sector_active;
+
+sd_spi_reader u_sd_reader (
+    .clk            (clk_27m),
+    .rst_n          (rst_n),
+    .start_read     (sd_start_read),
+    .sector_addr    (sd_sector_addr),
+    .sd_clk_o       (sd_clk),
+    .sd_mosi        (sd_cmd),
+    .sd_miso        (sd_dat0),
+    .sd_cs_n        (sd_dat3),
+    .tap_wr_en      (sd_tap_wr_en),
+    .tap_wr_addr    (sd_tap_wr_addr),
+    .tap_wr_data    (sd_tap_wr_data),
+    .byte_out_valid (sd_byte_valid),
+    .byte_out_data  (sd_byte_data),
+    .byte_out_index (sd_byte_index),
+    .init_done      (sd_init_done),
+    .read_done      (sd_read_done),
+    .error          (sd_error)
+);
+
+wire [3:0] current_ir;
+wire [3:0] sd_num_irs;
+wire       ir_loaded;
+wire       ir_loading;
+wire       header_ok;
+
+sd_ir_loader u_ir_loader (
+    .clk              (clk_27m),
+    .rst_n            (rst_n),
+    .btn_next         (1'b1),    // No button cycling yet (active low, held high = no press)
+    .sd_start_read    (sd_start_read),
+    .sd_sector_addr   (sd_sector_addr),
+    .sd_init_done     (sd_init_done),
+    .sd_read_done     (sd_read_done),
+    .sd_error         (sd_error),
+    .sd_byte_valid    (sd_byte_valid),
+    .sd_byte_data     (sd_byte_data),
+    .sd_byte_index    (sd_byte_index),
+    .ir_sector_active (ir_sector_active),
+    .current_ir       (current_ir),
+    .num_irs          (sd_num_irs),
+    .ir_loaded        (ir_loaded),
+    .loading          (ir_loading),
+    .header_ok        (header_ok)
+);
+
+// Gate tap writes: only pass through during IR sector reads (not header)
+wire        cab_tap_wr_en   = sd_tap_wr_en & ir_sector_active;
+wire [7:0]  cab_tap_wr_addr = sd_tap_wr_addr;
+wire [15:0] cab_tap_wr_data = sd_tap_wr_data;
+
 // ── Cabinet IR (256-tap FIR) ───────────────────────────────────────────────
 wire signed [31:0] cab_out;
 wire cab_valid;
@@ -275,12 +352,15 @@ wire cab_valid;
 cabinet_fir #(
     .N_TAPS (129)
 ) cabinet (
-    .clk       (clk_27m),
-    .rst_n     (rst_n),
-    .sample_en (xf_valid),
-    .audio_in  (xf_out),
-    .audio_out (cab_out),
-    .out_valid (cab_valid)
+    .clk         (clk_27m),
+    .rst_n       (rst_n),
+    .sample_en   (xf_valid),
+    .audio_in    (xf_out),
+    .audio_out   (cab_out),
+    .out_valid   (cab_valid),
+    .tap_wr_en   (cab_tap_wr_en),
+    .tap_wr_addr (cab_tap_wr_addr),
+    .tap_wr_data (cab_tap_wr_data)
 );
 
 // ── Negative Feedback Register ─────────────────────────────────────────────
