@@ -100,6 +100,16 @@ localparam signed [FP_WIDTH-1:0] IG_VGK_MAX_FP = 32'sd131072;
 localparam signed [FP_WIDTH-1:0] IG_VGK_STEP_FP = 32'sd2080;
 localparam integer RG_INT = 1000000;
 
+// Reciprocal constants for replacing division by compile-time constants
+// INV_X = round(2^32 / X), used as: (numerator * INV_X) >>> 32
+localparam signed [63:0] INV_VPK_RANGE = 64'sd14317;       // 2^32 / (VPK_MAX_MV - VPK_MIN_MV) = 2^32 / 300000
+localparam signed [63:0] INV_VGK_RANGE = 64'sd1073742;     // 2^32 / (VGK_MAX_MV - VGK_MIN_MV) = 2^32 / 4000
+localparam signed [63:0] INV_VPK_RANGE_PA = 64'sd8590;     // 2^32 / (VPK_MAX_MV_PA - VPK_MIN_MV_PA) = 2^32 / 500000
+localparam signed [63:0] INV_VGK_RANGE_PA = 64'sd85899;    // 2^32 / (VGK_MAX_MV_PA - VGK_MIN_MV_PA) = 2^32 / 50000
+localparam signed [63:0] INV_IG_VGK_STEP = 64'sd2065081;   // ceil(2^32 / 2080)
+localparam signed [63:0] INV_IP_SCALE = 64'sd429497;       // 2^32 / 10000
+localparam signed [63:0] INV_DIP_SCALE = 64'sd42950;       // 2^32 / 100000
+
 reg signed [15:0] ig_lut  [0:IG_LUT_SIZE-1];
 reg signed [15:0] dig_lut [0:IG_LUT_SIZE-1];
 
@@ -119,7 +129,7 @@ function automatic [LUT_BITS-1:0] vpk_to_idx;
         tmp = (vpk_fp * 1000) >>> FP_FRAC;
         if (tmp < VPK_MIN_MV) tmp = VPK_MIN_MV;
         if (tmp > VPK_MAX_MV) tmp = VPK_MAX_MV;
-        vpk_to_idx = ((tmp - VPK_MIN_MV) * (LUT_SIZE-1)) / (VPK_MAX_MV - VPK_MIN_MV);
+        vpk_to_idx = (($signed(tmp - VPK_MIN_MV) * (LUT_SIZE-1)) * INV_VPK_RANGE) >>> 32;
     end
 endfunction
 
@@ -130,7 +140,7 @@ function automatic [LUT_BITS-1:0] vgk_to_idx;
         tmp = (vgk_fp * 1000) >>> FP_FRAC;
         if (tmp < VGK_MIN_MV) tmp = VGK_MIN_MV;
         if (tmp > VGK_MAX_MV) tmp = VGK_MAX_MV;
-        vgk_to_idx = ((tmp - VGK_MIN_MV) * (LUT_SIZE-1)) / (VGK_MAX_MV - VGK_MIN_MV);
+        vgk_to_idx = (($signed(tmp - VGK_MIN_MV) * (LUT_SIZE-1)) * INV_VGK_RANGE) >>> 32;
     end
 endfunction
 
@@ -142,7 +152,7 @@ function automatic [LUT_BITS-1:0] vpk_to_idx_pa;
         tmp = (vpk_fp * 1000) >>> FP_FRAC;
         if (tmp < VPK_MIN_MV_PA) tmp = VPK_MIN_MV_PA;
         if (tmp > VPK_MAX_MV_PA) tmp = VPK_MAX_MV_PA;
-        vpk_to_idx_pa = ((tmp - VPK_MIN_MV_PA) * (LUT_SIZE-1)) / (VPK_MAX_MV_PA - VPK_MIN_MV_PA);
+        vpk_to_idx_pa = (($signed(tmp - VPK_MIN_MV_PA) * (LUT_SIZE-1)) * INV_VPK_RANGE_PA) >>> 32;
     end
 endfunction
 
@@ -153,7 +163,7 @@ function automatic [LUT_BITS-1:0] vgk_to_idx_pa;
         tmp = (vgk_fp * 1000) >>> FP_FRAC;
         if (tmp < VGK_MIN_MV_PA) tmp = VGK_MIN_MV_PA;
         if (tmp > VGK_MAX_MV_PA) tmp = VGK_MAX_MV_PA;
-        vgk_to_idx_pa = ((tmp - VGK_MIN_MV_PA) * (LUT_SIZE-1)) / (VGK_MAX_MV_PA - VGK_MIN_MV_PA);
+        vgk_to_idx_pa = (($signed(tmp - VGK_MIN_MV_PA) * (LUT_SIZE-1)) * INV_VGK_RANGE_PA) >>> 32;
     end
 endfunction
 
@@ -166,7 +176,7 @@ function automatic [IG_LUT_BITS-1:0] vgk_to_ig_idx;
         else if (vgk_fp >= IG_VGK_MAX_FP)
             vgk_to_ig_idx = IG_LUT_SIZE - 1;
         else begin
-            tmp = ($signed({vgk_fp, 16'b0})) / $signed(IG_VGK_STEP_FP);
+            tmp = ($signed({vgk_fp, 16'b0}) * INV_IG_VGK_STEP) >>> 32;
             vgk_to_ig_idx = tmp[IG_LUT_BITS-1:0];
         end
     end
@@ -411,8 +421,8 @@ always @(posedge clk or negedge rst_n) begin
 
         // ── Convert LUT raw to Q16.16 ─────────────────────────────────
         ST_NR_CONV: begin
-            ip_model    <= ($signed(ip_raw) <<< FP_FRAC) / IP_SCALE;
-            dip_vgk_val <= ($signed(dip_vgk_raw) <<< FP_FRAC) / DIP_SCALE;
+            ip_model    <= ($signed(ip_raw) * INV_IP_SCALE) >>> 16;
+            dip_vgk_val <= ($signed(dip_vgk_raw) * INV_DIP_SCALE) >>> 16;
             state <= ST_NR_STEP;
         end
 
@@ -428,8 +438,8 @@ always @(posedge clk or negedge rst_n) begin
             j11 = ONE_FP <<< 1;
 
             // J12 = dIp/dVgk * Rg
-            temp_b = ($signed(dip_vgk_raw) * $signed(RG_INT)) <<< FP_FRAC;
-            j12 = temp_b / DIP_SCALE;
+            temp_b = $signed(dip_vgk_raw) * $signed(RG_INT);
+            j12 = (temp_b * INV_DIP_SCALE) >>> 16;
 
             // J21 = 0
             j21 = 0;
