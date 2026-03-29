@@ -2,36 +2,40 @@
 // tangamp_top.v
 // Top-Level Module for tangAmp FPGA Tube Amp Emulator
 //
-// Signal chain: PCM1802 ADC -> 2-stage 12AX7 cascade -> PCM5102 DAC
-// Target: Tang Nano 20K (Gowin GW2A, 27MHz)
+// Full signal chain with real I2S ADC/DAC:
+//   PCM1802 ADC -> noise_gate -> NFB subtract -> [2x oversample] ->
+//   triode_engine (2-stage 12AX7 + 6L6 power amp) -> [downsample] ->
+//   tone_stack_iir -> output_transformer -> cabinet_fir -> PCM5102 DAC
+//                                              |
+//                                    nfb_register <---+
+//                                    power_supply_sag <-+
+//
+// Target: Tang Nano 20K (Gowin GW2AR-LV18QN88C8/I7, 27MHz)
+// I2S: PCM1802 ADC (24-bit) + PCM5102 DAC (32-bit)
 // ============================================================================
 
 module tangamp_top (
-    input  wire clk_27m,
-    input  wire btn_rst_n,
-    // I2S ADC (PCM1802)
-    input  wire adc_dout,
-    output wire adc_bck,
-    output wire adc_lrck,
-    // I2S DAC (PCM5102)
-    output wire dac_din,
-    output wire dac_bck,
-    output wire dac_lrck,
+    input  wire clk_27m,       // 27MHz crystal, pin 52
+    input  wire btn_rst_n,     // Button S1, pin 88, active low
+
+    // I2S clocks (shared between ADC and DAC — wire both to these pins)
+    output wire adc_bck,       // bit clock  (pin 76 → PCM1802.BCK + PCM5102.BCK)
+    output wire adc_lrck,      // word clock (pin 77 → PCM1802.LRCK + PCM5102.LRCK)
+
+    // I2S data
+    input  wire adc_dout,      // serial data from PCM1802 ADC (pin 48)
+    output wire dac_din,       // serial data to PCM5102 DAC (pin 49)
+
     // Status LEDs
     output wire [5:0] led
 );
 
 // ── Reset synchronizer (2-FF) ──────────────────────────────────────────────
-reg rst_n_r1, rst_n_sync;
-
-always @(posedge clk_27m or negedge btn_rst_n) begin
-    if (!btn_rst_n) begin
-        rst_n_r1   <= 1'b0;
-        rst_n_sync <= 1'b0;
-    end else begin
-        rst_n_r1   <= 1'b1;
-        rst_n_sync <= rst_n_r1;
-    end
+reg [1:0] rst_sync;
+reg rst_n;
+always @(posedge clk_27m) begin
+    rst_sync <= {rst_sync[0], btn_rst_n};
+    rst_n <= rst_sync[1];
 end
 
 // ── Audio Clock Generator ──────────────────────────────────────────────────
@@ -39,122 +43,305 @@ wire bck, lrck, sample_en;
 
 clk_audio_gen u_clkgen (
     .clk       (clk_27m),
-    .rst_n     (rst_n_sync),
+    .rst_n     (rst_n),
     .bck       (bck),
     .lrck      (lrck),
     .sample_en (sample_en)
 );
 
-// Share BCK/LRCK between ADC and DAC
+// BCK/LRCK outputs — physically wired to both ADC and DAC
 assign adc_bck  = bck;
 assign adc_lrck = lrck;
-assign dac_bck  = bck;
-assign dac_lrck = lrck;
 
-// ── I2S Receiver (ADC) ────────────────────────────────────────────────────
-wire signed [31:0] adc_audio_l;
+// ── I2S Receiver (ADC -> Q16.16) ───────────────────────────────────────────
+wire signed [31:0] adc_audio;
 wire               adc_valid;
 
 i2s_rx u_rx (
     .clk     (clk_27m),
-    .rst_n   (rst_n_sync),
+    .rst_n   (rst_n),
     .bck     (bck),
     .lrck    (lrck),
     .din     (adc_dout),
-    .audio_l (adc_audio_l),
+    .audio_l (adc_audio),
     .valid   (adc_valid)
 );
 
-// ── Triode Cascade (2 stages) ──────────────────────────────────────────────
-wire signed [31:0] amp_out;
-wire               amp_valid;
+// ── Input gain scaling ─────────────────────────────────────────────────────
+// Guitar pickups output ~100-500mV peak. ADC full scale maps to ±1.0 in Q16.16.
+// Tube preamp expects ~0.5-2V input. Scale by 4x (shift left 2).
+wire signed [31:0] scaled_in = adc_audio <<< 2;
 
-triode_cascade #(
-    .NUM_STAGES  (2),
-    .ATTEN_SHIFT (2)
-) u_cascade (
+// ── Noise Gate ─────────────────────────────────────────────────────────────
+wire signed [31:0] gated_in;
+
+noise_gate #(
+    .FP_FRAC  (16),
+    .FP_WIDTH (32)
+) ngate (
     .clk       (clk_27m),
-    .rst_n     (rst_n_sync),
+    .rst_n     (rst_n),
     .sample_en (adc_valid),
-    .audio_in  (adc_audio_l),
-    .audio_out (amp_out),
-    .out_valid (amp_valid)
+    .audio_in  (scaled_in),
+    .audio_out (gated_in),
+    .threshold (8'h08)       // low threshold — tune with pot later
 );
+
+// ── Negative Feedback Subtraction ──────────────────────────────────────────
+wire signed [31:0] nfb_signal;
+reg  signed [31:0] triode_input;
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n)
+        triode_input <= 0;
+    else if (adc_valid)
+        triode_input <= gated_in - nfb_signal;
+end
+
+// ── 2x Oversampling + Triode Engine ────────────────────────────────────────
+wire        up_valid_a, up_valid_b;
+wire signed [31:0] audio_up;
+
+reg         triode_start;
+reg  signed [31:0] triode_in;
+wire signed [31:0] triode_out;
+wire        triode_valid;
+
+reg  signed [31:0] proc_a_sample;
+reg         proc_a_valid;
+reg  signed [31:0] proc_b_sample;
+reg         proc_b_valid;
+
+wire signed [31:0] audio_down;
+wire        down_valid;
+
+oversample_2x oversamp (
+    .clk            (clk_27m),
+    .rst_n          (rst_n),
+    .sample_en_48k  (adc_valid),
+    .audio_in       (triode_input),
+    .up_valid_a     (up_valid_a),
+    .up_valid_b     (up_valid_b),
+    .audio_up       (audio_up),
+    .processed_a    (proc_a_sample),
+    .proc_valid_a   (proc_a_valid),
+    .processed_b    (proc_b_sample),
+    .proc_valid_b   (proc_b_valid),
+    .audio_down     (audio_down),
+    .down_valid     (down_valid)
+);
+
+triode_engine #(
+    .NUM_STAGES  (2),
+    .POWER_AMP   (1)
+) triode (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (triode_start),
+    .audio_in  (triode_in),
+    .audio_out (triode_out),
+    .out_valid (triode_valid)
+);
+
+// ── Oversampling Controller ────────────────────────────────────────────────
+localparam OS_IDLE       = 3'd0;
+localparam OS_WAIT_TRI_A = 3'd1;
+localparam OS_START_B    = 3'd2;
+localparam OS_WAIT_TRI_B = 3'd3;
+
+reg [2:0] os_state;
+reg signed [31:0] up_b_held;
+reg signed [31:0] triode_a_held;
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        os_state      <= OS_IDLE;
+        triode_start  <= 1'b0;
+        triode_in     <= 0;
+        proc_a_valid  <= 1'b0;
+        proc_b_valid  <= 1'b0;
+        proc_a_sample <= 0;
+        proc_b_sample <= 0;
+        up_b_held     <= 0;
+        triode_a_held <= 0;
+    end else begin
+        triode_start <= 1'b0;
+        proc_a_valid <= 1'b0;
+        proc_b_valid <= 1'b0;
+
+        case (os_state)
+        OS_IDLE: begin
+            if (up_valid_a) begin
+                triode_in    <= audio_up;
+                triode_start <= 1'b1;
+                os_state     <= OS_WAIT_TRI_A;
+            end
+        end
+        OS_WAIT_TRI_A: begin
+            if (up_valid_b)
+                up_b_held <= audio_up;
+            if (triode_valid) begin
+                triode_a_held <= triode_out;
+                os_state      <= OS_START_B;
+            end
+        end
+        OS_START_B: begin
+            triode_in    <= up_b_held;
+            triode_start <= 1'b1;
+            os_state     <= OS_WAIT_TRI_B;
+        end
+        OS_WAIT_TRI_B: begin
+            if (triode_valid) begin
+                proc_a_sample <= triode_a_held;
+                proc_a_valid  <= 1'b1;
+                proc_b_sample <= triode_out;
+                proc_b_valid  <= 1'b1;
+                os_state      <= OS_IDLE;
+            end
+        end
+        default: os_state <= OS_IDLE;
+        endcase
+    end
+end
+
+// ── Tone Stack (3-band biquad EQ) ──────────────────────────────────────────
+wire signed [31:0] tone_out;
+wire tone_valid;
+
+tone_stack_iir tone (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (down_valid),
+    .audio_in  (audio_down),
+    .audio_out (tone_out),
+    .out_valid (tone_valid)
+);
+
+// ── Output Transformer (HPF + LPF + soft clip) ────────────────────────────
+wire signed [31:0] xf_out;
+wire xf_valid;
+
+output_transformer xformer (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (tone_valid),
+    .audio_in  (tone_out),
+    .audio_out (xf_out),
+    .out_valid (xf_valid)
+);
+
+// ── Power Supply Sag ───────────────────────────────────────────────────────
+wire signed [31:0] b_plus_out;
+
+power_supply_sag #(
+    .SAG_SHIFT (3)
+) psu_sag (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (xf_valid),
+    .audio_in  (xf_out),
+    .b_plus    (b_plus_out)
+);
+
+// ── Cabinet IR (256-tap FIR) ───────────────────────────────────────────────
+wire signed [31:0] cab_out;
+wire cab_valid;
+
+cabinet_fir #(
+    .N_TAPS (129)
+) cabinet (
+    .clk       (clk_27m),
+    .rst_n     (rst_n),
+    .sample_en (xf_valid),
+    .audio_in  (xf_out),
+    .audio_out (cab_out),
+    .out_valid (cab_valid)
+);
+
+// ── Negative Feedback Register ─────────────────────────────────────────────
+nfb_register #(
+    .NFB_SHIFT (3)
+) nfb (
+    .clk        (clk_27m),
+    .rst_n      (rst_n),
+    .fb_in      (cab_out),
+    .fb_valid   (cab_valid),
+    .nfb_signal (nfb_signal)
+);
+
+// ── Output scaling for DAC ─────────────────────────────────────────────────
+// cab_out is in Q16.16 with typical range ±50V.
+// DAC expects values near full scale. Shift right to avoid clipping,
+// then the DAC's own output stage handles the analog level.
+wire signed [31:0] dac_audio = cab_out >>> 2;
 
 // ── I2S Transmitter (DAC) ──────────────────────────────────────────────────
 i2s_tx u_tx (
     .clk     (clk_27m),
-    .rst_n   (rst_n_sync),
-    .bck     (bck),
-    .lrck    (lrck),
-    .audio_l (amp_out),
-    .audio_r (amp_out),       // mono: same signal both channels
-    .load    (amp_valid),
+    .rst_n   (rst_n),
+    .bck     (bck),              // internal bck (same signal driving adc_bck pin)
+    .lrck    (lrck),             // internal lrck (same signal driving adc_lrck pin)
+    .audio_l (dac_audio),
+    .audio_r (dac_audio),        // mono: same signal both channels
+    .load    (cab_valid),
     .dout    (dac_din)
 );
 
 // ── LED Indicators ─────────────────────────────────────────────────────────
 
-// LED[0]: Heartbeat - toggle every ~13.5M clocks (0.5s at 27MHz)
-reg [23:0] hb_cnt;
-reg        hb_led;
-
-always @(posedge clk_27m or negedge rst_n_sync) begin
-    if (!rst_n_sync) begin
-        hb_cnt <= 24'd0;
-        hb_led <= 1'b0;
+// LED[0]: Heartbeat (~1Hz)
+reg [24:0] hb_cnt;
+reg hb;
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        hb_cnt <= 0;
+        hb <= 0;
     end else begin
-        if (hb_cnt == 24'd13_499_999) begin
-            hb_cnt <= 24'd0;
-            hb_led <= ~hb_led;
-        end else begin
-            hb_cnt <= hb_cnt + 24'd1;
-        end
+        if (hb_cnt >= 25'd13_500_000) begin
+            hb_cnt <= 0;
+            hb <= ~hb;
+        end else
+            hb_cnt <= hb_cnt + 1;
     end
 end
 
-// LED[1]: Sample activity - blink on sample_en
+// LED[1]: ADC activity (blinks when receiving samples)
 reg [19:0] act_cnt;
-reg        act_led;
-
-always @(posedge clk_27m or negedge rst_n_sync) begin
-    if (!rst_n_sync) begin
-        act_cnt <= 20'd0;
-        act_led <= 1'b0;
+reg act_led;
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        act_cnt <= 0;
+        act_led <= 0;
     end else begin
         if (adc_valid) begin
             act_led <= 1'b1;
-            act_cnt <= 20'd0;
-        end else if (act_cnt < 20'd675_000) begin
-            // Stay lit for ~25ms (675000 / 27M)
-            act_cnt <= act_cnt + 20'd1;
-        end else begin
+            act_cnt <= 0;
+        end else if (act_cnt < 20'd675_000)
+            act_cnt <= act_cnt + 1;
+        else
             act_led <= 1'b0;
-        end
     end
 end
 
-// LED[2]: Audio present - |audio_in| > threshold
-// Threshold: ~0.01V in Q16.16 = 655
-reg audio_present;
-
-always @(posedge clk_27m or negedge rst_n_sync) begin
-    if (!rst_n_sync) begin
-        audio_present <= 1'b0;
-    end else if (adc_valid) begin
-        if (adc_audio_l > 32'sd655 || adc_audio_l < -32'sd655)
-            audio_present <= 1'b1;
-        else
-            audio_present <= 1'b0;
+// LED[2:5]: VU meter (output level)
+reg [31:0] abs_out;
+reg [3:0] vu;
+always @(posedge clk_27m) begin
+    if (cab_valid) begin
+        abs_out <= cab_out[31] ? -cab_out : cab_out;
+        vu[0] <= (abs_out > 32'd65536);     // > 1V
+        vu[1] <= (abs_out > 32'd196608);    // > 3V
+        vu[2] <= (abs_out > 32'd524288);    // > 8V
+        vu[3] <= (abs_out > 32'd983040);    // > 15V
     end
 end
 
 // Tang Nano 20K LEDs are active-low
-assign led[0] = ~hb_led;
+assign led[0] = ~hb;
 assign led[1] = ~act_led;
-assign led[2] = ~audio_present;
-assign led[3] = 1'b1;  // off
-assign led[4] = 1'b1;  // off
-assign led[5] = 1'b1;  // off
+assign led[2] = ~vu[0];
+assign led[3] = ~vu[1];
+assign led[4] = ~vu[2];
+assign led[5] = ~vu[3];
 
 endmodule

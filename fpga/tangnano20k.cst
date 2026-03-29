@@ -5,9 +5,13 @@
 IO_LOC  "clk_27m"  52;
 IO_PORT "clk_27m"  IO_TYPE=LVCMOS33;
 
-// Button S1 (active low)
+// Button S1 (active low) — active reset
 IO_LOC  "btn_s1"   88;
 IO_PORT "btn_s1"   IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// Button S2 — spare (bypass toggle later)
+// IO_LOC  "btn_s2"   87;
+// IO_PORT "btn_s2"   IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
 // Onboard LEDs (active low)
 IO_LOC  "led[0]"   15;
@@ -22,3 +26,41 @@ IO_PORT "led[2]"   IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "led[3]"   IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "led[4]"   IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "led[5]"   IO_TYPE=LVCMOS33 DRIVE=8;
+
+// ── I2S Audio Interface ────────────────────────────────────────────────────
+// Using right-side pin header (active-low active, active-low active)
+// Pin assignments use the bottom of the right header for easy wiring.
+//
+// Tang Nano 20K right header (top to bottom):
+//   5V, GND, 3.3V, then GPIO pins 73,74,75,76,77,48,49,26,27,28,29,30,31,32,33,34
+//
+// Wiring plan (right header, bottom pins):
+//   Pin 76 = BCK  (shared clock, directly adjacent for short traces)
+//   Pin 77 = LRCK (shared word clock)
+//   Pin 48 = ADC DOUT (data from PCM1802)
+//   Pin 49 = DAC DIN  (data to PCM5102)
+//
+// tangamp_top.v uses: adc_bck, adc_lrck, dac_bck, dac_lrck (shared from same signal)
+// Only need 4 pins: bck_out, lrck_out, adc_dout_in, dac_din_out
+
+// I2S Clocks (shared between ADC and DAC — directly wired in tangamp_top.v)
+//   BCK  → wire to both PCM1802.BCK and PCM5102.BCK
+//   LRCK → wire to both PCM1802.LRCK and PCM5102.LRCK
+IO_LOC  "adc_bck"   76;
+IO_PORT "adc_bck"   IO_TYPE=LVCMOS33 DRIVE=8;
+IO_LOC  "adc_lrck"  77;
+IO_PORT "adc_lrck"  IO_TYPE=LVCMOS33 DRIVE=8;
+
+// I2S ADC data (PCM1802/PCM1808 DOUT → FPGA)
+IO_LOC  "adc_dout"  48;
+IO_PORT "adc_dout"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// I2S DAC data (FPGA → PCM5102 DIN)
+IO_LOC  "dac_din"   49;
+IO_PORT "dac_din"   IO_TYPE=LVCMOS33 DRIVE=8;
+
+// DAC BCK/LRCK share the same physical wires as ADC —
+// connect PCM5102.BCK to same wire as pin 76, PCM5102.LRCK to pin 77.
+// In tangamp_top.v: dac_bck and dac_lrck are assigned from the same
+// internal signals as adc_bck and adc_lrck, so we only need the ADC pins
+// as outputs. The DAC reads from the same physical wires.
