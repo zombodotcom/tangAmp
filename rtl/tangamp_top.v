@@ -16,7 +16,7 @@
 
 module tangamp_top (
     input  wire clk_27m,       // 27MHz crystal, pin 52
-    input  wire btn_s1,        // Button S1, pin 88, active low (reset)
+    input  wire btn_s1,        // Button S1, pin 88, active low (IR cycle)
     input  wire btn_s2,        // Button S2, pin 87, active low (bypass toggle)
 
     // I2S clocks (shared between ADC and DAC — wire both to these pins)
@@ -43,12 +43,39 @@ module tangamp_top (
 assign sd_dat1 = 1'b1;
 assign sd_dat2 = 1'b1;
 
-// ── Reset synchronizer (2-FF) ──────────────────────────────────────────────
-reg [1:0] rst_sync;
+// ── Power-on reset: hold reset for 1024 clocks after power-up ─────────────
+reg [9:0] por_cnt;
 reg rst_n;
+
 always @(posedge clk_27m) begin
-    rst_sync <= {rst_sync[0], btn_s1};
-    rst_n <= rst_sync[1];
+    if (por_cnt < 10'd1023) begin
+        por_cnt <= por_cnt + 1;
+        rst_n <= 1'b0;
+    end else begin
+        rst_n <= 1'b1;
+    end
+end
+
+// ── S1 debounce: IR cycling button ────────────────────────────────────────
+reg [15:0] s1_debounce;
+reg s1_prev;
+reg ir_next_pulse;
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        s1_debounce <= 0;
+        s1_prev <= 1;
+        ir_next_pulse <= 0;
+    end else begin
+        ir_next_pulse <= 0;
+        s1_prev <= btn_s1;
+        if (!btn_s1 && s1_prev && s1_debounce == 0) begin
+            ir_next_pulse <= 1;
+            s1_debounce <= 16'hFFFF;
+        end
+        if (s1_debounce > 0)
+            s1_debounce <= s1_debounce - 1;
+    end
 end
 
 // ── Bypass Mode Toggle (S2 debounce) ──────────────────────────────────────
@@ -323,7 +350,7 @@ wire       header_ok;
 sd_ir_loader u_ir_loader (
     .clk              (clk_27m),
     .rst_n            (rst_n),
-    .btn_next         (1'b1),    // No button cycling yet (active low, held high = no press)
+    .btn_next         (~ir_next_pulse),  // active-low pulse for IR cycling
     .sd_start_read    (sd_start_read),
     .sd_sector_addr   (sd_sector_addr),
     .sd_init_done     (sd_init_done),
@@ -443,12 +470,33 @@ always @(posedge clk_27m) begin
     end
 end
 
+// ── IR index display timer (LED[2:4] show IR index for 2s after button press)
+reg [25:0] ir_display_timer;
+reg ir_displaying;
+
+always @(posedge clk_27m or negedge rst_n) begin
+    if (!rst_n) begin
+        ir_display_timer <= 0;
+        ir_displaying <= 0;
+    end else begin
+        if (ir_next_pulse) begin
+            ir_displaying <= 1;
+            ir_display_timer <= 26'd54_000_000; // 2 sec at 27MHz
+        end else if (ir_display_timer > 0) begin
+            ir_display_timer <= ir_display_timer - 1;
+        end else begin
+            ir_displaying <= 0;
+        end
+    end
+end
+
 // Tang Nano 20K LEDs are active-low
 assign led[0] = ~hb;
 assign led[1] = ~act_led;
-assign led[2] = ~vu[0];
-assign led[3] = ~vu[1];
-assign led[4] = ~vu[2];
+// LED[2:4]: show IR index (binary) during display, VU meter otherwise
+assign led[2] = ir_displaying ? ~current_ir[0] : ~vu[0];
+assign led[3] = ir_displaying ? ~current_ir[1] : ~vu[1];
+assign led[4] = ir_displaying ? ~current_ir[2] : ~vu[2];
 assign led[5] = ~bypass_mode;  // lit when bypass active
 
 endmodule
