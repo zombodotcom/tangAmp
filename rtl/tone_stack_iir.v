@@ -1,18 +1,16 @@
 // ============================================================================
 // tone_stack_iir.v
-// Tone stack using cascaded biquad (IIR) filters derived from actual
-// Fender Bassman / Marshall JCM800 circuit topology.
+// Tone stack using cascaded biquad (IIR) filters with 5 switchable presets.
 //
-// Coefficients computed by compute_tonestack.py from the analog transfer
-// function of the passive RC tone stack network, bilinear-transformed
-// to digital IIR and factored into second-order sections (SOS).
+// Presets computed from parametric EQ (low shelf + peaking + high shelf)
+// using bilinear-transformed biquad coefficients. All coefficients verified
+// to fit within Q2.14 signed 16-bit range (max |coeff| < 2.0).
 //
-// Default: Fender Bassman flat (T=5, M=5, L=5).
-// AMP_SELECT parameter: 0=Fender, 1=Marshall.
-//
-// Component values:
-//   Fender:  R1=250k R2=1M R3=25k R4=56k C1=250pF C2=20nF C3=20nF
-//   Marshall: R1=220k R2=1M R3=25k R4=33k C1=470pF C2=22nF C3=22nF
+// Preset 0: Flat       (0dB / 0dB / 0dB)
+// Preset 1: Scooped    (+1.5dB bass / -7.2dB mid / +1.5dB treble)
+// Preset 2: Mid Boost  (-3dB bass / +7.2dB mid / -3dB treble)
+// Preset 3: Bass Heavy (+1.5dB bass / 0dB mid / -6dB treble)
+// Preset 4: Bright     (-6dB bass / 0dB mid / +1.5dB treble)
 //
 // Biquad: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
 // Coefficients in Q2.14 (signed 16-bit, multiply Q16.16 x Q2.14, shift >>14)
@@ -22,11 +20,10 @@
 // Fixed point: Q16.16 signed throughout
 // ============================================================================
 
-module tone_stack_iir #(
-    parameter AMP_SELECT = 0  // 0=Fender Bassman, 1=Marshall JCM800
-)(
+module tone_stack_iir (
     input  wire        clk,
     input  wire        rst_n,
+    input  wire [2:0]  preset,     // 0-4: selects coefficient preset
     input  wire        sample_en,
     input  wire signed [31:0] audio_in,
     output reg  signed [31:0] audio_out,
@@ -34,72 +31,69 @@ module tone_stack_iir #(
 );
 
 // ============================================================================
-// Biquad Coefficients (Q2.14 signed 16-bit)
-// Derived from actual tone stack circuit topology by compute_tonestack.py.
-// The analog H(s) of the passive RC network is bilinear-transformed to H(z)
-// and factored into cascaded second-order sections.
+// Preset Coefficient Selection (Q2.14 signed 16-bit)
 //
-// Fender Bassman: R1=250k R2=1M R3=25k R4=56k C1=250pF C2=20nF C3=20nF
-// Marshall JCM800: R1=220k R2=1M R3=25k R4=33k C1=470pF C2=22nF C3=22nF
-// Setting: flat (T=5, M=5, L=5)
+// Bass:   low shelf at 200Hz, Q=0.707
+// Mid:    peaking at 800Hz, Q=0.7
+// Treble: high shelf at 3kHz, Q=0.707
 // ============================================================================
 
-// --- Fender Bassman flat (T=0.5, M=0.5, L=0.5) ---
-localparam signed [15:0] FENDER_BASS_B0 =  16'sd9978;
-localparam signed [15:0] FENDER_BASS_B1 = -16'sd18995;
-localparam signed [15:0] FENDER_BASS_B2 =  16'sd9202;
-localparam signed [15:0] FENDER_BASS_A1 = -16'sd5992;
-localparam signed [15:0] FENDER_BASS_A2 =  16'sd0;
+reg signed [15:0] bass_b0, bass_b1, bass_b2, bass_a1, bass_a2;
+reg signed [15:0] mid_b0,  mid_b1,  mid_b2,  mid_a1,  mid_a2;
+reg signed [15:0] treb_b0, treb_b1, treb_b2, treb_a1, treb_a2;
 
-localparam signed [15:0] FENDER_MID_B0 =  16'sd16384;
-localparam signed [15:0] FENDER_MID_B1 = -16'sd16384;
-localparam signed [15:0] FENDER_MID_B2 =  16'sd0;
-localparam signed [15:0] FENDER_MID_A1 = -16'sd32415;
-localparam signed [15:0] FENDER_MID_A2 =  16'sd16031;
-
-localparam signed [15:0] FENDER_TREB_B0 =  16'sd16384;
-localparam signed [15:0] FENDER_TREB_B1 =  16'sd0;
-localparam signed [15:0] FENDER_TREB_B2 =  16'sd0;
-localparam signed [15:0] FENDER_TREB_A1 =  16'sd0;
-localparam signed [15:0] FENDER_TREB_A2 =  16'sd0;
-
-// --- Marshall JCM800 flat (T=0.5, M=0.5, L=0.5) ---
-localparam signed [15:0] MARSHALL_BASS_B0 =  16'sd12505;
-localparam signed [15:0] MARSHALL_BASS_B1 = -16'sd23903;
-localparam signed [15:0] MARSHALL_BASS_B2 =  16'sd11546;
-localparam signed [15:0] MARSHALL_BASS_A1 = -16'sd10747;
-localparam signed [15:0] MARSHALL_BASS_A2 =  16'sd0;
-
-localparam signed [15:0] MARSHALL_MID_B0 =  16'sd16384;
-localparam signed [15:0] MARSHALL_MID_B1 = -16'sd16384;
-localparam signed [15:0] MARSHALL_MID_B2 =  16'sd0;
-localparam signed [15:0] MARSHALL_MID_A1 = -16'sd32287;
-localparam signed [15:0] MARSHALL_MID_A2 =  16'sd15903;
-
-localparam signed [15:0] MARSHALL_TREB_B0 =  16'sd16384;
-localparam signed [15:0] MARSHALL_TREB_B1 =  16'sd0;
-localparam signed [15:0] MARSHALL_TREB_B2 =  16'sd0;
-localparam signed [15:0] MARSHALL_TREB_A1 =  16'sd0;
-localparam signed [15:0] MARSHALL_TREB_A2 =  16'sd0;
-
-// --- Select active coefficients based on AMP_SELECT ---
-localparam signed [15:0] BASS_B0 = (AMP_SELECT == 0) ? FENDER_BASS_B0 : MARSHALL_BASS_B0;
-localparam signed [15:0] BASS_B1 = (AMP_SELECT == 0) ? FENDER_BASS_B1 : MARSHALL_BASS_B1;
-localparam signed [15:0] BASS_B2 = (AMP_SELECT == 0) ? FENDER_BASS_B2 : MARSHALL_BASS_B2;
-localparam signed [15:0] BASS_A1 = (AMP_SELECT == 0) ? FENDER_BASS_A1 : MARSHALL_BASS_A1;
-localparam signed [15:0] BASS_A2 = (AMP_SELECT == 0) ? FENDER_BASS_A2 : MARSHALL_BASS_A2;
-
-localparam signed [15:0] MID_B0 = (AMP_SELECT == 0) ? FENDER_MID_B0 : MARSHALL_MID_B0;
-localparam signed [15:0] MID_B1 = (AMP_SELECT == 0) ? FENDER_MID_B1 : MARSHALL_MID_B1;
-localparam signed [15:0] MID_B2 = (AMP_SELECT == 0) ? FENDER_MID_B2 : MARSHALL_MID_B2;
-localparam signed [15:0] MID_A1 = (AMP_SELECT == 0) ? FENDER_MID_A1 : MARSHALL_MID_A1;
-localparam signed [15:0] MID_A2 = (AMP_SELECT == 0) ? FENDER_MID_A2 : MARSHALL_MID_A2;
-
-localparam signed [15:0] TREB_B0 = (AMP_SELECT == 0) ? FENDER_TREB_B0 : MARSHALL_TREB_B0;
-localparam signed [15:0] TREB_B1 = (AMP_SELECT == 0) ? FENDER_TREB_B1 : MARSHALL_TREB_B1;
-localparam signed [15:0] TREB_B2 = (AMP_SELECT == 0) ? FENDER_TREB_B2 : MARSHALL_TREB_B2;
-localparam signed [15:0] TREB_A1 = (AMP_SELECT == 0) ? FENDER_TREB_A1 : MARSHALL_TREB_A1;
-localparam signed [15:0] TREB_A2 = (AMP_SELECT == 0) ? FENDER_TREB_A2 : MARSHALL_TREB_A2;
+always @(*) begin
+    case (preset)
+    3'd0: begin // Flat (0dB / 0dB / 0dB) -- unity passthrough
+        bass_b0 =  16'sd16384; bass_b1 = -16'sd32161; bass_b2 =  16'sd15788;
+        bass_a1 = -16'sd32161; bass_a2 =  16'sd15788;
+        mid_b0  =  16'sd16384; mid_b1  = -16'sd30324; mid_b2  =  16'sd14107;
+        mid_a1  = -16'sd30324; mid_a2  =  16'sd14107;
+        treb_b0 =  16'sd16384; treb_b1 = -16'sd23826; treb_b2 =  16'sd9405;
+        treb_a1 = -16'sd23826; treb_a2 =  16'sd9405;
+    end
+    3'd1: begin // Scooped (+1.5dB bass / -7.2dB mid / +1.5dB treble)
+        bass_b0 =  16'sd16410; bass_b1 = -16'sd32186; bass_b2 =  16'sd15788;
+        bass_a1 = -16'sd32187; bass_a2 =  16'sd15813;
+        mid_b0  =  16'sd15447; mid_b1  = -16'sd29280; mid_b2  =  16'sd13994;
+        mid_a1  = -16'sd29280; mid_a2  =  16'sd13057;
+        treb_b0 =  16'sd19019; treb_b1 = -16'sd28074; treb_b2 =  16'sd11169;
+        treb_a1 = -16'sd23453; treb_a2 =  16'sd9184;
+    end
+    3'd2: begin // Mid Boost (-3dB bass / +7.2dB mid / -3dB treble)
+        bass_b0 =  16'sd16332; bass_b1 = -16'sd32109; bass_b2 =  16'sd15786;
+        bass_a1 = -16'sd32107; bass_a2 =  16'sd15736;
+        mid_b0  =  16'sd17378; mid_b1  = -16'sd31056; mid_b2  =  16'sd13849;
+        mid_a1  = -16'sd31056; mid_a2  =  16'sd14844;
+        treb_b0 =  16'sd12159; treb_b1 = -16'sd17119; treb_b2 =  16'sd6649;
+        treb_a1 = -16'sd24530; treb_a2 =  16'sd9835;
+    end
+    3'd3: begin // Bass Heavy (+1.5dB bass / 0dB mid / -6dB treble)
+        bass_b0 =  16'sd16410; bass_b1 = -16'sd32186; bass_b2 =  16'sd15788;
+        bass_a1 = -16'sd32187; bass_a2 =  16'sd15813;
+        mid_b0  =  16'sd16384; mid_b1  = -16'sd30324; mid_b2  =  16'sd14107;
+        mid_a1  = -16'sd30324; mid_a2  =  16'sd14107;
+        treb_b0 =  16'sd9027;  treb_b1 = -16'sd12260; treb_b2 =  16'sd4684;
+        treb_a1 = -16'sd25183; treb_a2 =  16'sd10251;
+    end
+    3'd4: begin // Bright (-6dB bass / 0dB mid / +1.5dB treble)
+        bass_b0 =  16'sd16279; bass_b1 = -16'sd32051; bass_b2 =  16'sd15780;
+        bass_a1 = -16'sd32047; bass_a2 =  16'sd15679;
+        mid_b0  =  16'sd16384; mid_b1  = -16'sd30324; mid_b2  =  16'sd14107;
+        mid_a1  = -16'sd30324; mid_a2  =  16'sd14107;
+        treb_b0 =  16'sd19019; treb_b1 = -16'sd28074; treb_b2 =  16'sd11169;
+        treb_a1 = -16'sd23453; treb_a2 =  16'sd9184;
+    end
+    default: begin // Default to Flat
+        bass_b0 =  16'sd16384; bass_b1 = -16'sd32161; bass_b2 =  16'sd15788;
+        bass_a1 = -16'sd32161; bass_a2 =  16'sd15788;
+        mid_b0  =  16'sd16384; mid_b1  = -16'sd30324; mid_b2  =  16'sd14107;
+        mid_a1  = -16'sd30324; mid_a2  =  16'sd14107;
+        treb_b0 =  16'sd16384; treb_b1 = -16'sd23826; treb_b2 =  16'sd9405;
+        treb_a1 = -16'sd23826; treb_a2 =  16'sd9405;
+    end
+    endcase
+end
 
 // ============================================================================
 // Coefficient Arrays (indexed by biquad number)
@@ -111,15 +105,15 @@ reg signed [15:0] coeff_b2 [0:2];
 reg signed [15:0] coeff_a1 [0:2];
 reg signed [15:0] coeff_a2 [0:2];
 
-initial begin
-    coeff_b0[0] = BASS_B0;  coeff_b1[0] = BASS_B1;  coeff_b2[0] = BASS_B2;
-    coeff_a1[0] = BASS_A1;  coeff_a2[0] = BASS_A2;
+always @(*) begin
+    coeff_b0[0] = bass_b0;  coeff_b1[0] = bass_b1;  coeff_b2[0] = bass_b2;
+    coeff_a1[0] = bass_a1;  coeff_a2[0] = bass_a2;
 
-    coeff_b0[1] = MID_B0;   coeff_b1[1] = MID_B1;   coeff_b2[1] = MID_B2;
-    coeff_a1[1] = MID_A1;   coeff_a2[1] = MID_A2;
+    coeff_b0[1] = mid_b0;   coeff_b1[1] = mid_b1;   coeff_b2[1] = mid_b2;
+    coeff_a1[1] = mid_a1;   coeff_a2[1] = mid_a2;
 
-    coeff_b0[2] = TREB_B0;  coeff_b1[2] = TREB_B1;  coeff_b2[2] = TREB_B2;
-    coeff_a1[2] = TREB_A1;  coeff_a2[2] = TREB_A2;
+    coeff_b0[2] = treb_b0;  coeff_b1[2] = treb_b1;  coeff_b2[2] = treb_b2;
+    coeff_a1[2] = treb_a1;  coeff_a2[2] = treb_a2;
 end
 
 // ============================================================================

@@ -133,8 +133,15 @@ i2s_rx u_rx (
 
 // ── Input gain scaling ─────────────────────────────────────────────────────
 // Guitar pickups output ~100-500mV peak. ADC full scale maps to ±1.0 in Q16.16.
-// Tube preamp expects ~0.5-2V input. Scale by 4x (shift left 2).
-wire signed [31:0] scaled_in = adc_audio <<< 2;
+// Tube preamp expects ~0.5-2V input.
+// Gain parameter: 10-bit from SPI ADC pot (0-1023).
+//   256 = unity (1.0x), 512 = 2x, 1023 = ~4x, 0 = mute
+// Later: wire to spi_adc.v ch0_val for real-time pot control
+localparam [9:0] INPUT_GAIN = 10'd512;  // default 2x gain
+
+wire signed [31:0] scaled_in;
+wire signed [63:0] gain_tmp = $signed(adc_audio) * $signed({1'b0, INPUT_GAIN});
+assign scaled_in = gain_tmp[41:10];  // divide by 1024 to normalize
 
 // ── Noise Gate ─────────────────────────────────────────────────────────────
 wire signed [31:0] gated_in;
@@ -269,12 +276,17 @@ always @(posedge clk_27m or negedge rst_n) begin
 end
 
 // ── Tone Stack (3-band biquad EQ) ──────────────────────────────────────────
+// Preset selector: 0=Flat, 1=Scooped, 2=MidBoost, 3=BassHeavy, 4=Bright
+// Later: wire to SPI ADC pot via range mapping
+localparam [2:0] TONE_PRESET = 3'd0;
+
 wire signed [31:0] tone_out;
 wire tone_valid;
 
 tone_stack_iir tone (
     .clk       (clk_27m),
     .rst_n     (rst_n),
+    .preset    (TONE_PRESET),
     .sample_en (down_valid),
     .audio_in  (audio_down),
     .audio_out (tone_out),

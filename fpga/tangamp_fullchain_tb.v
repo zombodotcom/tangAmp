@@ -96,6 +96,7 @@ wire tone_valid;
 tone_stack_iir u_tone (
     .clk       (clk),
     .rst_n     (rst_n),
+    .preset    (3'd0),
     .sample_en (triode_valid),
     .audio_in  (triode_out),
     .audio_out (tone_out),

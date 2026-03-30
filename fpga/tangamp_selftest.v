@@ -253,6 +253,7 @@ wire tone_valid;
 tone_stack_iir tone (
     .clk       (clk_27m),
     .rst_n     (rst_n),
+    .preset    (3'd0),
     .sample_en (down_valid),
     .audio_in  (audio_down),
     .audio_out (tone_out),
