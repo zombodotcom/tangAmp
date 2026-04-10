@@ -14,6 +14,7 @@ import re
 import concurrent.futures
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(PROJECT_DIR)
 
 # Build env with iverilog on PATH
 # On Windows, shell=True uses cmd.exe which needs Windows-style paths
@@ -25,12 +26,12 @@ else:
 env["PATH"] = iverilog_path + os.pathsep + env.get("PATH", "")
 
 
-def run_cmd(label, cmd, shell=False):
+def run_cmd(label, cmd, shell=False, cwd=None):
     """Run a command, return (label, success, elapsed, stdout, stderr)."""
     t0 = time.perf_counter()
     try:
         result = subprocess.run(
-            cmd, cwd=PROJECT_DIR, env=env, capture_output=True, text=True,
+            cmd, cwd=cwd or PROJECT_DIR, env=env, capture_output=True, text=True,
             timeout=120, shell=shell
         )
         elapsed = time.perf_counter() - t0
@@ -131,12 +132,18 @@ def run_full():
         # Use shell=True for chained command
         label, success, elapsed, stdout, stderr = run_cmd(
             "Verilog compile+sim",
-            "iverilog -g2012 -o wdf_sim_v ../fpga/wdf_triode_wdf_tb.v ../rtl/wdf_triode_wdf.v && vvp wdf_sim_v",
-            shell=True
+            "iverilog -g2012 -o wdf_sim_v fpga/wdf_triode_wdf_tb.v rtl/wdf_triode_wdf.v && vvp wdf_sim_v",
+            shell=True, cwd=REPO_ROOT
         )
+        # Copy output to sim/ for validation scripts
+        repo_tb_path = os.path.join(REPO_ROOT, "wdf_tb_output.txt")
+        sim_tb_path = os.path.join(PROJECT_DIR, "wdf_tb_output.txt")
+        if os.path.exists(repo_tb_path) and repo_tb_path != sim_tb_path:
+            import shutil
+            shutil.copy2(repo_tb_path, sim_tb_path)
         # Count samples in output file
         samples_info = ""
-        wdf_tb_path = os.path.join(PROJECT_DIR, "wdf_tb_output.txt")
+        wdf_tb_path = sim_tb_path
         if os.path.exists(wdf_tb_path):
             try:
                 with open(wdf_tb_path) as f:

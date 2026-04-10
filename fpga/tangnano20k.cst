@@ -2,7 +2,7 @@
 // Gowin GW2AR-LV18QN88C8/I7
 
 // Clock
-IO_LOC  "clk_27m"  52;
+IO_LOC  "clk_27m"  4;
 IO_PORT "clk_27m"  IO_TYPE=LVCMOS33;
 
 // Button S1 (active low) — active reset
