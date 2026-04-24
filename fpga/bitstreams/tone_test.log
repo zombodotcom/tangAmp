@@ -1,0 +1,83 @@
+*** GOWIN Tcl Command Line Console  *** 
+current device: GW2AR-18C  GW2AR-LV18QN88C8/I7
+add new file: "../rtl/tone_test.v"
+add new file: "../rtl/clk_audio_gen.v"
+add new file: "../rtl/i2s_tx.v"
+add new file: "../rtl/tone_stack_iir.v"
+add new file: "tangnano20k.cst"
+add new file: "blink.sdc"
+GowinSynthesis start
+Running parser ...
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v'
+Compiling module 'tone_test'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":15)
+Extracting RAM for identifier 'sine_table'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":96)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":47)
+Compiling module 'clk_audio_gen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v":13)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":81)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":82)
+WARN  (EX3791) : Expression size 4 truncated to fit in target size 3("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":85)
+Compiling module 'tone_stack_iir'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":23)
+Extracting RAM for identifier 'bq_x1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":123)
+Extracting RAM for identifier 'bq_x2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":124)
+Extracting RAM for identifier 'bq_y1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":125)
+Extracting RAM for identifier 'bq_y2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":126)
+WARN  (EX3791) : Expression size 50 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":192)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":212)
+Compiling module 'i2s_tx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v":13)
+WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":218)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":230)
+NOTE  (EX0101) : Current top module is "tone_test"
+[5%] Running netlist conversion ...
+WARN  (CV0016) : Input adc_dout is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":22)
+WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_test.v":27)
+Running device independent optimization ...
+[10%] Optimizing Phase 0 completed
+[15%] Optimizing Phase 1 completed
+[25%] Optimizing Phase 2 completed
+Running inference ...
+[30%] Inferring Phase 0 completed
+[40%] Inferring Phase 1 completed
+[50%] Inferring Phase 2 completed
+[55%] Inferring Phase 3 completed
+Running technical mapping ...
+[60%] Tech-Mapping Phase 0 completed
+[65%] Tech-Mapping Phase 1 completed
+[75%] Tech-Mapping Phase 2 completed
+[80%] Tech-Mapping Phase 3 completed
+[90%] Tech-Mapping Phase 4 completed
+[95%] Generate netlist file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project.vg" completed
+[100%] Generate report file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project_syn.rpt.html" completed
+GowinSynthesis finish
+Reading netlist file: "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project.vg"
+Parsing netlist file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project.vg" completed
+Processing netlist completed
+Reading constraint file: "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangnano20k.cst"
+Physical Constraint parsed completed
+Running placement......
+[10%] Placement Phase 0 completed
+[20%] Placement Phase 1 completed
+[30%] Placement Phase 2 completed
+[50%] Placement Phase 3 completed
+Running routing......
+[60%] Routing Phase 0 completed
+[70%] Routing Phase 1 completed
+[80%] Routing Phase 2 completed
+WARN  (PR1014) : Generic routing resource will be used to clock signal 'clk_27m_d' by the specified constraint. And then it may lead to the excessive delay or skew
+[90%] Routing Phase 3 completed
+Running timing analysis......
+[95%] Timing analysis completed
+Placement and routing completed
+Bitstream generation in progress......
+Bitstream generation completed
+Running power analysis......
+[100%] Power analysis completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.power.html" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.pin.html" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.html" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.txt" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.tr.html" completed
+Fri Apr 24 15:19:34 2026
+

@@ -103,37 +103,37 @@ always @(posedge clk_27m or negedge rst_n) begin
         s2_prev <= 1; s2_db <= 0;
         peak_mode <= 0;
         peak_val <= 0;
+        abs_val <= 0;
+        vu <= 0;
     end else begin
         s1_prev <= btn_s1;
         s2_prev <= btn_s2;
         if (s1_db > 0) s1_db <= s1_db - 1;
         if (s2_db > 0) s2_db <= s2_db - 1;
 
-        if (s1_press) begin
-            peak_val <= 0;
-            s1_db <= 16'hFFFF;
-        end
         if (s2_press) begin
             peak_mode <= ~peak_mode;
             s2_db <= 16'hFFFF;
         end
-    end
-end
 
-always @(posedge clk_27m) begin
-    if (adc_valid) begin
-        abs_val <= adc_audio[31] ? (~adc_audio + 1) : adc_audio;
+        if (adc_valid) begin
+            abs_val <= adc_audio[31] ? (~adc_audio + 1) : adc_audio;
 
-        // Track peak
-        if (abs_val > peak_val)
-            peak_val <= abs_val;
+            if (s1_press) begin
+                peak_val <= 0;
+                s1_db <= 16'hFFFF;
+            end else if (abs_val > peak_val) begin
+                peak_val <= abs_val;
+            end
 
-        // VU thresholds (Q16.16 format)
-        // These are quite low to catch guitar-level signals
-        vu[0] <= (abs_val > 32'd256);       // any signal at all
-        vu[1] <= (abs_val > 32'd4096);      // quiet
-        vu[2] <= (abs_val > 32'd32768);     // moderate (0.5V)
-        vu[3] <= (abs_val > 32'd131072);    // loud (2V)
+            vu[0] <= (abs_val > 32'd256);
+            vu[1] <= (abs_val > 32'd4096);
+            vu[2] <= (abs_val > 32'd32768);
+            vu[3] <= (abs_val > 32'd131072);
+        end else if (s1_press) begin
+            peak_val <= 0;
+            s1_db <= 16'hFFFF;
+        end
     end
 end
 

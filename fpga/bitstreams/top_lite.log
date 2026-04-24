@@ -1,0 +1,148 @@
+*** GOWIN Tcl Command Line Console  *** 
+current device: GW2AR-18C  GW2AR-LV18QN88C8/I7
+add new file: "../rtl/tangamp_top_lite.v"
+add new file: "../rtl/clk_audio_gen.v"
+add new file: "../rtl/i2s_rx.v"
+add new file: "../rtl/i2s_tx.v"
+add new file: "../rtl/oversample_2x.v"
+add new file: "../rtl/triode_engine.v"
+add new file: "../rtl/wdf_triode_wdf.v"
+add new file: "../rtl/tone_stack_iir.v"
+add new file: "../rtl/output_transformer.v"
+add new file: "../rtl/nfb_register.v"
+add new file: "../rtl/cabinet_fir.v"
+add new file: "../rtl/noise_gate.v"
+add new file: "../data/ip_lut.hex"
+add new file: "../data/dip_dvgk_lut.hex"
+add new file: "../data/cab_ir.hex"
+add new file: "../data/ig_lut.hex"
+add new file: "../data/dig_lut.hex"
+add new file: "tangnano20k.cst"
+add new file: "blink.sdc"
+GowinSynthesis start
+Running parser ...
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\oversample_2x.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\wdf_triode_wdf.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\nfb_register.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\noise_gate.v'
+Compiling module 'tangamp_top_lite'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":15)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":48)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":74)
+Compiling module 'clk_audio_gen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v":13)
+Compiling module 'i2s_rx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v":13)
+Compiling module 'noise_gate'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\noise_gate.v":14)
+Compiling module 'oversample_2x'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\oversample_2x.v":19)
+Compiling module 'triode_engine(POWER_AMP=0)'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":15)
+Extracting RAM for identifier 'ip_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":81)
+Extracting RAM for identifier 'dip_vgk_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":82)
+Extracting RAM for identifier 'ip_lut_pa'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":85)
+Extracting RAM for identifier 'dip_vgk_lut_pa'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":86)
+Extracting RAM for identifier 'ig_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":103)
+Extracting RAM for identifier 'dig_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":104)
+Extracting RAM for identifier 'bank_hp_prev_in'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":203)
+Extracting RAM for identifier 'bank_hp_prev_out'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":204)
+Extracting RAM for identifier 'bank_ck_z'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":205)
+Extracting RAM for identifier 'bank_ip_prev'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":206)
+Extracting RAM for identifier 'bank_ig_prev'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":207)
+Extracting RAM for identifier 'bank_vp_dc'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":208)
+Extracting RAM for identifier 'bank_sample_count'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":209)
+Extracting RAM for identifier 'bank_dc_frozen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":210)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":145)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":156)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":122)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":133)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":446)
+WARN  (EX3791) : Expression size 50 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":450)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":457)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":485)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":513)
+Compiling module 'tone_stack_iir'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":23)
+Extracting RAM for identifier 'bq_x1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":123)
+Extracting RAM for identifier 'bq_x2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":124)
+Extracting RAM for identifier 'bq_y1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":125)
+Extracting RAM for identifier 'bq_y2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":126)
+WARN  (EX3791) : Expression size 50 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":192)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tone_stack_iir.v":212)
+Compiling module 'output_transformer'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":17)
+Extracting RAM for identifier 'coeff_b0'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":62)
+Extracting RAM for identifier 'coeff_b1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":63)
+Extracting RAM for identifier 'coeff_b2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":64)
+Extracting RAM for identifier 'coeff_a1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":65)
+Extracting RAM for identifier 'coeff_a2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":66)
+Extracting RAM for identifier 'bq_x1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":80)
+Extracting RAM for identifier 'bq_x2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":81)
+Extracting RAM for identifier 'bq_y1'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":82)
+Extracting RAM for identifier 'bq_y2'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":83)
+WARN  (EX3791) : Expression size 50 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\output_transformer.v":149)
+Compiling module 'cabinet_fir(N_TAPS=129)'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":17)
+Extracting RAM for identifier 'taps'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":38)
+Extracting RAM for identifier 'sample_buf'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":54)
+WARN  (EX2412) : Illegal entry at data/cab_ir.hex:130 for index 129 in range [0:128]("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":41)
+WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":115)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":117)
+WARN  (EX3791) : Expression size 49 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":124)
+WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":128)
+Compiling module 'nfb_register(NFB_SHIFT=3)'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\nfb_register.v":19)
+Compiling module 'i2s_tx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v":13)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":321)
+WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":331)
+NOTE  (EX0101) : Current top module is "tangamp_top_lite"
+[5%] Running netlist conversion ...
+WARN  (CV0016) : Input btn_s1 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":17)
+WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":27)
+Running device independent optimization ...
+[10%] Optimizing Phase 0 completed
+[15%] Optimizing Phase 1 completed
+[25%] Optimizing Phase 2 completed
+Running inference ...
+[30%] Inferring Phase 0 completed
+[40%] Inferring Phase 1 completed
+[50%] Inferring Phase 2 completed
+[55%] Inferring Phase 3 completed
+Running technical mapping ...
+[60%] Tech-Mapping Phase 0 completed
+[65%] Tech-Mapping Phase 1 completed
+[75%] Tech-Mapping Phase 2 completed
+[80%] Tech-Mapping Phase 3 completed
+[90%] Tech-Mapping Phase 4 completed
+[95%] Generate netlist file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project.vg" completed
+[100%] Generate report file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project_syn.rpt.html" completed
+GowinSynthesis finish
+Reading netlist file: "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project.vg"
+Parsing netlist file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\gwsynthesis\project.vg" completed
+Processing netlist completed
+Reading constraint file: "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\tangnano20k.cst"
+Physical Constraint parsed completed
+Running placement......
+[10%] Placement Phase 0 completed
+[20%] Placement Phase 1 completed
+[30%] Placement Phase 2 completed
+[50%] Placement Phase 3 completed
+Running routing......
+[60%] Routing Phase 0 completed
+[70%] Routing Phase 1 completed
+[80%] Routing Phase 2 completed
+WARN  (PR1014) : Generic routing resource will be used to clock signal 'clk_27m_d' by the specified constraint. And then it may lead to the excessive delay or skew
+[90%] Routing Phase 3 completed
+Running timing analysis......
+[95%] Timing analysis completed
+Placement and routing completed
+Bitstream generation in progress......
+Bitstream generation completed
+Running power analysis......
+[100%] Power analysis completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.power.html" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.pin.html" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.html" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.txt" completed
+Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.tr.html" completed
+Fri Apr 24 15:22:47 2026
+
