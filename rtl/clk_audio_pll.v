@@ -101,9 +101,11 @@ always @(posedge mclk or negedge clk_rst_n) begin
     end
 end
 
-// ── BCK rising edge detect ─────────────────────────────────────────────────
+// ── BCK edge detect ────────────────────────────────────────────────────────
+// I2S spec: LRCK changes on BCK FALLING edge so it's stable at next rising
 reg bck_d;
 wire bck_rise = bck_int & ~bck_d;
+wire bck_fall = ~bck_int & bck_d;
 always @(posedge mclk or negedge clk_rst_n) begin
     if (!clk_rst_n)
         bck_d <= 1'b0;
@@ -111,15 +113,14 @@ always @(posedge mclk or negedge clk_rst_n) begin
         bck_d <= bck_int;
 end
 
-// ── LRCK generation: divide BCK by 64 → 46.875 kHz ─────────────────────────
-// 32 BCK per channel, toggle LRCK every 32 BCK rising edges.
+// ── LRCK generation: 64 BCK per LRCK frame, toggle on BCK falling ──────────
 reg [5:0] lrck_cnt;
 
 always @(posedge mclk or negedge clk_rst_n) begin
     if (!clk_rst_n) begin
         lrck_cnt <= 6'd0;
         lrck_int <= 1'b1;
-    end else if (bck_rise) begin
+    end else if (bck_fall) begin
         if (lrck_cnt == 6'd31) begin
             lrck_cnt <= 6'd0;
             lrck_int <= ~lrck_int;
