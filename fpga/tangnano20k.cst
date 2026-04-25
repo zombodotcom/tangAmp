@@ -53,14 +53,14 @@ IO_PORT "adc_lrck"  IO_TYPE=LVCMOS33 DRIVE=8;
 
 // I2S ADC data (PCM1802/PCM1808 DOUT → FPGA)
 IO_LOC  "adc_dout"  48;
-IO_PORT "adc_dout"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_PORT "adc_dout"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
 // I2S DAC data (FPGA → PCM5102 DIN)
 IO_LOC  "dac_din"   49;
 IO_PORT "dac_din"   IO_TYPE=LVCMOS33 DRIVE=8;
 
-// I2S MCLK out (FPGA → PCM1808 SCK) — 18 MHz from PLL
-IO_LOC  "mclk_out"  75;
+// I2S MCLK out (FPGA → PCM1808 SCK) — was pin 75, moved to 27 after pin 75 died
+IO_LOC  "mclk_out"  27;
 IO_PORT "mclk_out"  IO_TYPE=LVCMOS33 DRIVE=8;
 
 // DAC BCK/LRCK share the same physical wires as ADC —

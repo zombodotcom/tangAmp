@@ -30,11 +30,15 @@ module clk_audio_pll (
     input  wire clk_27m,
     input  wire rst_n,
     output wire mclk,           // 18 MHz to PCM1808 SCK pin
-    output reg  bck,            // 3 MHz bit clock
-    output reg  lrck,           // 46.875 kHz word clock
+    output wire bck,            // 3 MHz bit clock (gated by pll_lock)
+    output wire lrck,           // 46.875 kHz word clock (gated by pll_lock)
     output wire sample_en,      // pulse on LRCK falling edge
     output wire pll_lock        // PLL locked indicator (good for debug LED)
 );
+
+// Internal undriven clock signals
+reg bck_int;
+reg lrck_int;
 
 // ── Gowin rPLL: 27 MHz → 18 MHz ────────────────────────────────────────────
 rPLL #(
@@ -77,59 +81,66 @@ rPLL #(
 );
 
 // ── BCK generation: divide 18 MHz MCLK by 6 → 3 MHz ──────────────────────
-// Gives 3 MHz BCK, perfectly phase-locked to MCLK.
-reg [2:0] bck_cnt;
+// Toggle every 3 MCLK cycles → half-period = 3, full period = 6 MCLK = 3 MHz.
+reg [1:0] bck_cnt;
 
-always @(posedge mclk or negedge rst_n) begin
-    if (!rst_n) begin
-        bck_cnt <= 3'd0;
-        bck     <= 1'b1;
+// Combine reset with PLL lock — keep clocks gated until PLL is stable
+wire clk_rst_n = rst_n & pll_lock;
+
+always @(posedge mclk or negedge clk_rst_n) begin
+    if (!clk_rst_n) begin
+        bck_cnt <= 2'd0;
+        bck_int <= 1'b1;
     end else begin
-        if (bck_cnt == 3'd5) begin
-            bck_cnt <= 3'd0;
-            bck     <= ~bck;
+        if (bck_cnt == 2'd2) begin
+            bck_cnt <= 2'd0;
+            bck_int <= ~bck_int;
         end else begin
-            bck_cnt <= bck_cnt + 3'd1;
+            bck_cnt <= bck_cnt + 2'd1;
         end
     end
 end
 
 // ── BCK rising edge detect ─────────────────────────────────────────────────
 reg bck_d;
-wire bck_rise = bck & ~bck_d;
-always @(posedge mclk or negedge rst_n) begin
-    if (!rst_n)
+wire bck_rise = bck_int & ~bck_d;
+always @(posedge mclk or negedge clk_rst_n) begin
+    if (!clk_rst_n)
         bck_d <= 1'b0;
     else
-        bck_d <= bck;
+        bck_d <= bck_int;
 end
 
 // ── LRCK generation: divide BCK by 64 → 46.875 kHz ─────────────────────────
 // 32 BCK per channel, toggle LRCK every 32 BCK rising edges.
 reg [5:0] lrck_cnt;
 
-always @(posedge mclk or negedge rst_n) begin
-    if (!rst_n) begin
+always @(posedge mclk or negedge clk_rst_n) begin
+    if (!clk_rst_n) begin
         lrck_cnt <= 6'd0;
-        lrck     <= 1'b1;
+        lrck_int <= 1'b1;
     end else if (bck_rise) begin
         if (lrck_cnt == 6'd31) begin
             lrck_cnt <= 6'd0;
-            lrck     <= ~lrck;
+            lrck_int <= ~lrck_int;
         end else begin
             lrck_cnt <= lrck_cnt + 6'd1;
         end
     end
 end
 
+// Drive output clocks from internal regs
+assign bck  = bck_int;
+assign lrck = lrck_int;
+
 // ── sample_en: pulse on LRCK falling edge (left-channel start) ─────────────
 reg lrck_d;
-wire lrck_fall = ~lrck & lrck_d;
-always @(posedge mclk or negedge rst_n) begin
-    if (!rst_n)
+wire lrck_fall = ~lrck_int & lrck_d;
+always @(posedge mclk or negedge clk_rst_n) begin
+    if (!clk_rst_n)
         lrck_d <= 1'b0;
     else
-        lrck_d <= lrck;
+        lrck_d <= lrck_int;
 end
 assign sample_en = lrck_fall;
 
