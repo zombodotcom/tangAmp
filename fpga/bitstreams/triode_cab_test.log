@@ -1,0 +1,120 @@
+*** GOWIN Tcl Command Line Console  *** 
+current device: GW2AR-18C  GW2AR-LV18QN88C8/I7
+add new file: "../rtl/triode_cab_test.v"
+add new file: "../rtl/clk_audio_gen.v"
+add new file: "../rtl/clk_audio_pll.v"
+add new file: "../rtl/i2s_rx.v"
+add new file: "../rtl/i2s_tx.v"
+add new file: "../rtl/triode_engine.v"
+add new file: "../rtl/wdf_triode_wdf.v"
+add new file: "../rtl/oversample_2x.v"
+add new file: "../rtl/cabinet_fir.v"
+add new file: "../rtl/sd_spi_reader.v"
+add new file: "../rtl/sd_ir_loader.v"
+add new file: "../data/ip_lut.hex"
+add new file: "../data/dip_dvgk_lut.hex"
+add new file: "../data/ig_lut.hex"
+add new file: "../data/dig_lut.hex"
+add new file: "../data/cab_ir.hex"
+add new file: "tangnano20k.cst"
+add new file: "blink.sdc"
+GowinSynthesis start
+Running parser ...
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\wdf_triode_wdf.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\oversample_2x.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_ir_loader.v'
+Compiling module 'triode_cab_test'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v":15)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v":46)
+Compiling module 'clk_audio_pll'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v":29)
+Compiling module 'i2s_rx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v":13)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v":102)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v":123)
+Compiling module 'triode_engine(POWER_AMP=0)'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":15)
+Extracting RAM for identifier 'ip_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":81)
+Extracting RAM for identifier 'dip_vgk_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":82)
+Extracting RAM for identifier 'ip_lut_pa'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":85)
+Extracting RAM for identifier 'dip_vgk_lut_pa'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":86)
+Extracting RAM for identifier 'ig_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":103)
+Extracting RAM for identifier 'dig_lut'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":104)
+Extracting RAM for identifier 'bank_hp_prev_in'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":203)
+Extracting RAM for identifier 'bank_hp_prev_out'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":204)
+Extracting RAM for identifier 'bank_ck_z'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":205)
+Extracting RAM for identifier 'bank_ip_prev'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":206)
+Extracting RAM for identifier 'bank_ig_prev'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":207)
+Extracting RAM for identifier 'bank_vp_dc'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":208)
+Extracting RAM for identifier 'bank_sample_count'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":209)
+Extracting RAM for identifier 'bank_dc_frozen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":210)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":145)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":156)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":122)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":133)
+WARN  (EX3791) : Expression size 64 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":446)
+WARN  (EX3791) : Expression size 50 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":450)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":457)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":485)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_engine.v":513)
+Compiling module 'sd_spi_reader'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":22)
+WARN  (EX3791) : Expression size 8 truncated to fit in target size 7("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":76)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 3("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":120)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":224)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":235)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":257)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":285)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":306)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":327)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":346)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":365)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":385)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":406)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":429)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":440)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":461)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":481)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":501)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":548)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":573)
+WARN  (EX3791) : Expression size 17 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":595)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":633)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_spi_reader.v":649)
+Compiling module 'sd_ir_loader'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\sd_ir_loader.v":21)
+Compiling module 'cabinet_fir'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":17)
+Extracting RAM for identifier 'taps'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":38)
+Extracting RAM for identifier 'sample_buf'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":54)
+WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":115)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":117)
+WARN  (EX3791) : Expression size 49 truncated to fit in target size 32("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":124)
+WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":128)
+Compiling module 'i2s_tx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v":13)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v":252)
+WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\triode_cab_test.v":263)
+NOTE  (EX0101) : Current top module is "triode_cab_test"
+[5%] Running netlist conversion ...
+Running device independent optimization ...
+[10%] Optimizing Phase 0 completed
+[15%] Optimizing Phase 1 completed
+[25%] Optimizing Phase 2 completed
+Running inference ...
+[30%] Inferring Phase 0 completed
+[40%] Inferring Phase 1 completed
+[50%] Inferring Phase 2 completed
+[55%] Inferring Phase 3 completed
+Running technical mapping ...
+[60%] Tech-Mapping Phase 0 completed
+[65%] Tech-Mapping Phase 1 completed
+[75%] Tech-Mapping Phase 2 completed
+[80%] Tech-Mapping Phase 3 completed
+[90%] Tech-Mapping Phase 4 completed
+ERROR (RP0006) : The number(24128(21999 LUTs, 659 ALUs, 0 ROM16s, 245 SSRAMs)) of logic in the design exceeds the resource limit(20736) of current device
+GowinSynthesis finish
+
+    while executing
+"run all"
+    (file "synthesize_triode_cab_test.tcl" line 29)

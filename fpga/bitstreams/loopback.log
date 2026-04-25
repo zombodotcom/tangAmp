@@ -2,6 +2,7 @@
 current device: GW2AR-18C  GW2AR-LV18QN88C8/I7
 add new file: "../rtl/loopback_test.v"
 add new file: "../rtl/clk_audio_gen.v"
+add new file: "../rtl/clk_audio_pll.v"
 add new file: "../rtl/i2s_rx.v"
 add new file: "../rtl/i2s_tx.v"
 add new file: "tangnano20k.cst"
@@ -10,25 +11,26 @@ GowinSynthesis start
 Running parser ...
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v'
 Compiling module 'loopback_test'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":20)
-Extracting RAM for identifier 'sine_table'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":102)
-WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":52)
-Compiling module 'clk_audio_gen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v":13)
-WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":87)
-WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":88)
-WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":95)
+Extracting RAM for identifier 'sine_table'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":107)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":53)
+Compiling module 'clk_audio_pll'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v":29)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":92)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":93)
+WARN  (EX3791) : Expression size 3 truncated to fit in target size 2("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":100)
 Compiling module 'i2s_tx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v":13)
 Compiling module 'i2s_rx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v":13)
-WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":277)
-WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":311)
-WARN  (EX3791) : Expression size 25 truncated to fit in target size 24("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":346)
-WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":363)
-WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":375)
+WARN  (EX3791) : Expression size 5 truncated to fit in target size 4("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":282)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":316)
+WARN  (EX3791) : Expression size 25 truncated to fit in target size 24("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":351)
+WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":368)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":380)
 NOTE  (EX0101) : Current top module is "loopback_test"
 [5%] Running netlist conversion ...
-WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":32)
+WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\loopback_test.v":33)
 Running device independent optimization ...
 [10%] Optimizing Phase 0 completed
 [15%] Optimizing Phase 1 completed
@@ -75,5 +77,5 @@ Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.html" completed
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.txt" completed
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.tr.html" completed
-Fri Apr 24 15:19:17 2026
+Sat Apr 25 09:38:15 2026
 

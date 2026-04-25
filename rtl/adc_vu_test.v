@@ -19,7 +19,8 @@ module adc_vu_test (
     output wire adc_bck,   // I2S bit clock  (pin 76)
     output wire adc_lrck,  // I2S word clock (pin 77)
     input  wire adc_dout,  // ADC data (pin 48)
-    output wire dac_din,   // unused but declared for CST compatibility
+    output wire dac_din,
+    output wire mclk_out,    // 18MHz MCLK to PCM1808 SCK (pin 75)   // unused but declared for CST compatibility
 
     output wire sd_clk,
     output wire sd_cmd,
@@ -54,15 +55,19 @@ always @(posedge clk_27m) begin
 end
 
 // ── Audio Clock Generator ────────────────────────────────────────────────
-wire bck, lrck, sample_en;
+wire mclk, bck, lrck, sample_en, pll_lock;
 
-clk_audio_gen u_clkgen (
-    .clk       (clk_27m),
+clk_audio_pll u_clkgen (
+    .clk_27m   (clk_27m),
     .rst_n     (rst_n),
+    .mclk      (mclk),
     .bck       (bck),
     .lrck      (lrck),
-    .sample_en (sample_en)
+    .sample_en (sample_en),
+    .pll_lock  (pll_lock)
 );
+
+assign mclk_out = mclk;
 
 assign adc_bck  = bck;
 assign adc_lrck = lrck;

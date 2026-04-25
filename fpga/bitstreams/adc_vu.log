@@ -2,6 +2,7 @@
 current device: GW2AR-18C  GW2AR-LV18QN88C8/I7
 add new file: "../rtl/adc_vu_test.v"
 add new file: "../rtl/clk_audio_gen.v"
+add new file: "../rtl/clk_audio_pll.v"
 add new file: "../rtl/i2s_rx.v"
 add new file: "tangnano20k.cst"
 add new file: "blink.sdc"
@@ -9,18 +10,19 @@ GowinSynthesis start
 Running parser ...
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v'
 Compiling module 'adc_vu_test'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":14)
-WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":49)
-Compiling module 'clk_audio_gen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v":13)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":50)
+Compiling module 'clk_audio_pll'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v":29)
 Compiling module 'i2s_rx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v":13)
-WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":111)
-WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":112)
-WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":156)
-WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":167)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":116)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":117)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":161)
+WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":172)
 NOTE  (EX0101) : Current top module is "adc_vu_test"
 [5%] Running netlist conversion ...
-WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":26)
+WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\adc_vu_test.v":27)
 Running device independent optimization ...
 [10%] Optimizing Phase 0 completed
 [15%] Optimizing Phase 1 completed
@@ -67,5 +69,5 @@ Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.html" completed
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.txt" completed
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.tr.html" completed
-Fri Apr 24 15:23:13 2026
+Sat Apr 25 09:38:05 2026
 

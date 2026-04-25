@@ -59,6 +59,10 @@ IO_PORT "adc_dout"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
 IO_LOC  "dac_din"   49;
 IO_PORT "dac_din"   IO_TYPE=LVCMOS33 DRIVE=8;
 
+// I2S MCLK out (FPGA → PCM1808 SCK) — 18 MHz from PLL
+IO_LOC  "mclk_out"  75;
+IO_PORT "mclk_out"  IO_TYPE=LVCMOS33 DRIVE=8;
+
 // DAC BCK/LRCK share the same physical wires as ADC —
 // connect PCM5102.BCK to same wire as pin 76, PCM5102.LRCK to pin 77.
 // In tangamp_top.v: dac_bck and dac_lrck are assigned from the same

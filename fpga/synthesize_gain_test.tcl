@@ -2,6 +2,7 @@ catch {close_project}
 set_device -name GW2AR-18C GW2AR-LV18QN88C8/I7
 add_file ../rtl/gain_test.v
 add_file ../rtl/clk_audio_gen.v
+add_file ../rtl/clk_audio_pll.v
 add_file ../rtl/i2s_rx.v
 add_file ../rtl/i2s_tx.v
 add_file tangnano20k.cst

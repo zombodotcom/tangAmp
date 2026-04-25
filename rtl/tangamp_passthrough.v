@@ -16,9 +16,10 @@ module tangamp_passthrough (
     // I2S clocks (directly drive both ADC and DAC from these pins)
     output wire adc_bck,       // bit clock  (pin 76)
     output wire adc_lrck,      // word clock (pin 77)
+    output wire mclk_out,      // 18MHz MCLK to PCM1808 SCK (pin 75)
 
     // I2S data
-    input  wire adc_dout,      // serial data from PCM1802 ADC (pin 48)
+    input  wire adc_dout,      // serial data from PCM1808 ADC (pin 48)
     output wire dac_din,       // serial data to PCM5102 DAC   (pin 49)
 
     // SD card (directly drive unused to safe state)
@@ -53,26 +54,29 @@ always @(posedge clk_27m) begin
     end
 end
 
-// ── Audio Clock Generator ────────────────────────────────────────────────
-wire bck, lrck, sample_en;
+// ── Audio Clock Generator (PLL — provides MCLK for PCM1808) ─────────────
+wire mclk, bck, lrck, sample_en, pll_lock;
 
-clk_audio_gen u_clkgen (
-    .clk       (clk_27m),
+clk_audio_pll u_clkgen (
+    .clk_27m   (clk_27m),
     .rst_n     (rst_n),
+    .mclk      (mclk),
     .bck       (bck),
     .lrck      (lrck),
-    .sample_en (sample_en)
+    .sample_en (sample_en),
+    .pll_lock  (pll_lock)
 );
 
 assign adc_bck  = bck;
 assign adc_lrck = lrck;
+assign mclk_out = mclk;
 
 // ── I2S Receiver (ADC) ──────────────────────────────────────────────────
 wire signed [31:0] adc_audio;
 wire               adc_valid;
 
 i2s_rx u_rx (
-    .clk     (clk_27m),
+    .clk     (mclk),
     .rst_n   (rst_n),
     .bck     (bck),
     .lrck    (lrck),
@@ -83,7 +87,7 @@ i2s_rx u_rx (
 
 // ── I2S Transmitter (DAC) — direct passthrough ──────────────────────────
 i2s_tx u_tx (
-    .clk     (clk_27m),
+    .clk     (mclk),
     .rst_n   (rst_n),
     .bck     (bck),
     .lrck    (lrck),

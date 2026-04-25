@@ -2,6 +2,7 @@
 current device: GW2AR-18C  GW2AR-LV18QN88C8/I7
 add new file: "../rtl/tangamp_top_lite.v"
 add new file: "../rtl/clk_audio_gen.v"
+add new file: "../rtl/clk_audio_pll.v"
 add new file: "../rtl/i2s_rx.v"
 add new file: "../rtl/i2s_tx.v"
 add new file: "../rtl/oversample_2x.v"
@@ -23,6 +24,7 @@ GowinSynthesis start
 Running parser ...
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v'
+Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\oversample_2x.v'
@@ -34,9 +36,9 @@ Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\nfb_regis
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v'
 Analyzing Verilog file 'C:\Users\zombo\Desktop\Programming\tangAmp\rtl\noise_gate.v'
 Compiling module 'tangamp_top_lite'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":15)
-WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":48)
-WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":74)
-Compiling module 'clk_audio_gen'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_gen.v":13)
+WARN  (EX3791) : Expression size 11 truncated to fit in target size 10("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":49)
+WARN  (EX3791) : Expression size 32 truncated to fit in target size 16("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":75)
+Compiling module 'clk_audio_pll'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\clk_audio_pll.v":29)
 Compiling module 'i2s_rx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_rx.v":13)
 Compiling module 'noise_gate'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\noise_gate.v":14)
 Compiling module 'oversample_2x'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\oversample_2x.v":19)
@@ -92,12 +94,12 @@ WARN  (EX3791) : Expression size 49 truncated to fit in target size 32("C:\Users
 WARN  (EX3791) : Expression size 9 truncated to fit in target size 8("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\cabinet_fir.v":128)
 Compiling module 'nfb_register(NFB_SHIFT=3)'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\nfb_register.v":19)
 Compiling module 'i2s_tx'("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\i2s_tx.v":13)
-WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":321)
-WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":331)
+WARN  (EX3791) : Expression size 26 truncated to fit in target size 25("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":326)
+WARN  (EX3791) : Expression size 21 truncated to fit in target size 20("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":336)
 NOTE  (EX0101) : Current top module is "tangamp_top_lite"
 [5%] Running netlist conversion ...
 WARN  (CV0016) : Input btn_s1 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":17)
-WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":27)
+WARN  (CV0016) : Input sd_dat0 is unused("C:\Users\zombo\Desktop\Programming\tangAmp\rtl\tangamp_top_lite.v":28)
 Running device independent optimization ...
 [10%] Optimizing Phase 0 completed
 [15%] Optimizing Phase 1 completed
@@ -144,5 +146,5 @@ Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.html" completed
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.rpt.txt" completed
 Generate file "C:\Users\zombo\Desktop\Programming\tangAmp\fpga\impl\pnr\project.tr.html" completed
-Fri Apr 24 15:22:47 2026
+Sat Apr 25 09:42:18 2026
 
